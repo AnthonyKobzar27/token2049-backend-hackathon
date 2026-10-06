@@ -20,6 +20,7 @@ import { createFakeSource } from './sources/fake';
 import { createFreelancerSource } from './sources/freelancer';
 import { createRegistry } from './sources/registry';
 import { createRentAHumanSource } from './sources/rentahuman';
+import { createUpworkSource } from './sources/upwork';
 
 const config = loadConfig();
 const store = createStore(config.DB_PATH);
@@ -28,6 +29,7 @@ const bus = createEventBus();
 const sources: FreelancerSource[] = [
   createFreelancerSource(config),
   createRentAHumanSource(config),
+  createUpworkSource(config),
   ...createBrowserSources({ config, bus }),
 ];
 // Fixtures only on request, so they never mix into real results.

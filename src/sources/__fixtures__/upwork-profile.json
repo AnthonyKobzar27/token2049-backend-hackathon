@@ -1,0 +1,23 @@
+{
+  "data": {
+    "freelancerProfileByProfileKey": {
+      "personalData": {
+        "title": "Senior React & TypeScript Engineer",
+        "description": "I build fast, accessible web apps with React, Next.js and Node.",
+        "profileUrl": "https://www.upwork.com/freelancers/~01a1b2c3d4e5f6a7b8",
+        "chargeRate": { "rawValue": "65.0", "currency": "USD" },
+        "address": { "countryName": "Portugal", "cityName": "Lisbon", "timezone": "Europe/Lisbon" }
+      },
+      "aggregates": {
+        "jobSuccessScore": 98,
+        "topRatedStatus": "top_rated",
+        "topRatedPlusStatus": "none",
+        "totalFeedback": 47,
+        "adjustedFeedbackScore": 4.93
+      },
+      "availability": { "name": "More than 30 hrs/week", "availabilityDateTime": null },
+      "committedResponseTime": { "name": "Soon (12 hours)" },
+      "verifications": { "idVerified": true }
+    }
+  }
+}
