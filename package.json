@@ -16,10 +16,14 @@
     "register:agent": "tsx scripts/register-agent.ts",
     "sokosumi:worker": "tsx scripts/sokosumi-worker.ts",
     "seed:workers": "tsx scripts/seed-workers.ts",
-    "demo:bounty": "tsx scripts/demo-bounty.ts"
+    "demo:bounty": "tsx scripts/demo-bounty.ts",
+    "identity:wallet": "tsx scripts/mint-credential.ts --new-wallet",
+    "identity:mint": "tsx scripts/mint-credential.ts",
+    "identity:demo": "tsx scripts/reputation-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
+    "@meshsdk/core": "^1.9.1",
     "@solana/kit": "^8.4.0",
     "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.99.0",
@@ -37,6 +41,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@meshsdk/core-cst": "1.9.1",
     "@types/express": "^5.0.0",
     "@types/node": "^22",
     "@types/qrcode": "^1.5.5",

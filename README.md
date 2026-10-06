@@ -98,6 +98,10 @@ pnpm demo:bounty --live   # waits for a real teammate to claim on the printed /w
 pnpm seed:workers         # registers the demo team in ~/.haas/haas.db for `pnpm start`
 ```
 
+## Verified workers on Cardano
+
+Every worker HAAS books can hold a **"HAAS Verified Worker" credential**: a CIP-68 token pair on Cardano Preprod. Each completed, verified, paid job updates the credential's on-chain record (jobs completed, average rating, total earned) and mints a job receipt NFT. The receipt links the Masumi job id, the hash of the verified result and the payment transaction. The router gives verified workers a small, capped boost ("on-chain verified, 7 jobs completed on HAAS"). `GET /workers/:id/reputation` returns the asset ids and Cardanoscan links. Try `pnpm identity:demo`; the details are in [docs/IDENTITY.md](docs/IDENTITY.md).
+
 ## Honest limits
 
 - Freelancer platforms pay their sellers in fiat and forbid paying them elsewhere, so the Solana escrow protects the **hirer's** money; the operator fronts the platform payment and is repaid on release. A worker who publishes a Solana wallet (RentAHuman) is paid directly instead.
@@ -185,4 +189,5 @@ The deadline is the brief's delivery window (or `ESCROW_DELIVERY_DAYS`) plus `ES
 | `src/approvals/` | Approval gate and autonomy policy |
 | `src/payments/` | Solana escrow (program client, Solana Pay endpoint, vault fallback) and the x402 paywall |
 | `programs/haas-escrow/` | The on-chain escrow program (Anchor) and its IDL |
+| `src/identity/` | Worker credential and on-chain reputation on Cardano (CIP-68), see [docs/IDENTITY.md](docs/IDENTITY.md) |
 | `src/domain/` | Shared types and module contracts |

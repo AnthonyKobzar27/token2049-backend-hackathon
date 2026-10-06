@@ -15,6 +15,8 @@ import { createJobService } from './engine/jobs';
 import { createPoller } from './jobs/poller';
 import { mountMasumi } from './masumi/api';
 import { createBuyer } from './masumi/buyer';
+import { createIdentity } from './identity';
+import { mountIdentity } from './identity/api';
 import { createEscrowProvider } from './payments';
 import { mountSolanaPay } from './payments/solana-pay';
 import { mountX402 } from './payments/x402';
@@ -50,7 +52,9 @@ registerTelegramExtension(bounty.telegram);
 
 const registry = createRegistry({ sources, store, bus, config });
 const suitability = createSuitabilityScorer({ store, config });
-const router = createRouter({ registry, suitability, bus, config });
+// Worker credential and on-chain reputation (Cardano); null without BLOCKFROST_PROJECT_ID + CARDANO_MINT_MNEMONIC.
+const identity = createIdentity({ store, bus, config });
+const router = createRouter({ registry, suitability, bus, config, ...(identity ? { identity: identity.registry } : {}) });
 
 const policy = createPolicy({ store, config });
 const gate = createApprovalGate({ store, bus, policy, config });
@@ -70,6 +74,7 @@ const masumi = mountMasumi(app, { jobs, store, bus, config });
 mountX402(app, { jobs, store, bus, config });
 // Solana Pay transaction requests for program escrow deposits (the hirer's wallet signs the deposit).
 if (escrow.buildDepositTransaction) mountSolanaPay(app, { store, escrow, config });
+mountIdentity(app, identity);
 
 const telegram = createTelegram({ jobs, bookings, gate, policy, store, bus, config });
 const liaison = createLiaison({ store, bus, registry, gate, config });
@@ -94,12 +99,13 @@ const server = app.listen(config.PORT, () => {
   console.log(`[haas] sources: ${registry.enabled().map((s) => s.name).join(', ') || 'none enabled'}`);
   if (config.DEMO_MODE) console.log(`[haas] demo mode: pinned cache, ${config.DEMO_BUDGET_MS} ms budget (warm it with pnpm demo:warm)`);
   console.log(`[haas] AI-first: ${config.AI_DELEGATION}; agent: ${config.AI_AGENT_URL ?? (config.MASUMI_REGISTRY_URL ? 'registry search' : 'none')}`);
-  console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO || config.X402_SOLANA_PAY_TO ? 'on' : 'off'}`);
+  console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO || config.X402_SOLANA_PAY_TO ? 'on' : 'off'}; identity: ${identity ? config.CARDANO_NETWORK : 'off'}`);
 });
 masumi.start();
 const sokosumi = sokosumiWorkerFromConfig({ config, store, jobs });
 sokosumi?.start();
 poller.start();
+identity?.start();
 telegram.start().catch((err) => console.error('[telegram] failed to start:', err));
 
 let stopping = false;
@@ -110,6 +116,7 @@ async function shutdown() {
   bounty.stop();
   masumi.stop();
   sokosumi?.stop();
+  identity?.stop();
   await telegram.stop().catch(() => {});
   server.close();
   store.close();
