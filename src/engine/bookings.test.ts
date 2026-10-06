@@ -4,7 +4,9 @@ import { createStore } from '../db/db';
 import { createEventBus } from '../domain/events';
 import type { ApprovalGate, EscrowProvider, FreelancerSource, SourceRegistry } from '../domain/ports';
 import type { BookingRequest, BookingResult, Candidate, EscrowRecord, HaasEvent, Job, PlatformBookingStatus } from '../domain/types';
-import type { ResultVerifier } from '../verify/verifier';
+import { verifiedResultHash } from '../verify/hash';
+import type { RubricJudge } from '../verify/rubric';
+import { createResultVerifier, type ResultVerifier } from '../verify/verifier';
 import { createBookingService } from './bookings';
 
 const job: Job = { id: 'j1', status: 'running', client: 'local', brief: { task: 'logo', skills: [], remoteOk: true, budgetUsd: 90 }, round: 1, createdAt: 1, updatedAt: 1 };
@@ -241,5 +243,110 @@ describe('bookings settle', () => {
     expect(b.h.store.getBooking(b.id)?.verification?.verdict).toBe('needs_human');
     expect(b.h.asked).toContain('accept');
     expect(b.h.store.getEscrowByBooking(b.id)?.status).toBe('released');
+  });
+});
+
+describe('bookings QA before release', () => {
+  // Rubric that passes deliveries containing "final" and fails the rest, unless overridden.
+  const scripted = (judge?: RubricJudge) =>
+    createResultVerifier({
+      config: testConfig({ ANTHROPIC_API_KEY: 'k', VERIFY_TIMEOUT_MS: 600 }),
+      rubric: judge ?? (async (req) => /final/.test(req.delivery.text ?? '')
+        ? { verdict: 'pass', score: 0.9, checks: [{ name: 'logo', ok: true, detail: 'logo delivered' }], summary: 'Logo delivered as asked.' }
+        : { verdict: 'fail', score: 0.2, checks: [{ name: 'logo', ok: false, detail: 'only a sketch, no final logo' }], summary: 'No final logo.' }),
+    });
+
+  async function placedWith(verifier: ResultVerifier) {
+    const h = setup({ verifier });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+    return { h, id: b.id };
+  }
+  const qaEvents = (h: ReturnType<typeof setup>) => h.events.filter((e) => e.type.startsWith('verification.')).map((e) => e.type);
+
+  it('pass: asks the hirer with the QA summary, then releases bound to the result hash', async () => {
+    const { h, id } = await placedWith(scripted());
+    const releaseOnVerified = vi.fn(async (bookingId: string) => ({ ...h.store.getEscrowByBooking(bookingId)!, status: 'released' as const }));
+    Object.assign(h.escrow, { releaseOnVerified });
+    await h.svc.deliver(id, { text: 'Here is the final logo', urls: [] });
+    await vi.waitFor(() => expect(h.status(id)).toBe('completed'));
+    const b = h.store.getBooking(id)!;
+    expect(b.verification?.verdict).toBe('pass');
+    expect(b.resultHash).toBe(verifiedResultHash(id, { text: 'Here is the final logo' }));
+    expect(releaseOnVerified).toHaveBeenCalledWith(id, b.resultHash);
+    expect(h.escrow.release).not.toHaveBeenCalled();
+    expect(h.store.getEscrowByBooking(id)?.status).toBe('released');
+    const accept = vi.mocked(h.gate.request).mock.calls.map((c) => c[0]).find((r) => r.action === 'accept')!;
+    expect(accept.summary).toMatch(/^QA passed/);
+    expect(accept.detail).toContain('QA PASSED');
+    expect(qaEvents(h)).toEqual(['verification.started', 'verification.completed']);
+    const statuses = h.events.flatMap((e) => (e.type === 'booking.updated' && e.booking.id === id ? [e.booking.status] : []));
+    expect(statuses).toEqual(expect.arrayContaining(['delivered', 'verifying', 'verified', 'completed']));
+  });
+
+  it('fail -> one revision with the failed checks -> pass', async () => {
+    const { h, id } = await placedWith(scripted());
+    await h.svc.deliver(id, { text: 'a rough sketch' });
+    await vi.waitFor(() => expect(h.status(id)).toBe('in_revision'));
+    expect(h.source.requestRevision).toHaveBeenCalledWith('ord1', expect.stringContaining('only a sketch, no final logo'));
+    expect(h.escrow.release).not.toHaveBeenCalled();
+    // The platform still shows the old delivery: not new work, no second QA run.
+    await h.svc.deliver(id, { text: 'a rough sketch' });
+    expect(h.status(id)).toBe('in_revision');
+    await h.svc.deliver(id, { text: 'the final logo, as asked' });
+    await vi.waitFor(() => expect(h.status(id)).toBe('completed'));
+    expect(h.svc.verifications(id).map((r) => [r.verdict, r.attempt])).toEqual([['fail', 1], ['pass', 2]]);
+    expect(h.store.getEscrowByBooking(id)?.status).toBe('released');
+    expect(qaEvents(h)).toContain('verification.revision_requested');
+  });
+
+  it('fail twice -> rejected, no payout, escrow refunded', async () => {
+    const { h, id } = await placedWith(scripted());
+    await h.svc.deliver(id, { text: 'a rough sketch' });
+    await vi.waitFor(() => expect(h.status(id)).toBe('in_revision'));
+    await h.svc.deliver(id, { text: 'another rough sketch' });
+    await vi.waitFor(() => expect(h.status(id)).toBe('refunded'));
+    expect(h.escrow.release).not.toHaveBeenCalled();
+    expect(h.source.acceptDelivery).not.toHaveBeenCalled();
+    expect(h.store.getEscrowByBooking(id)?.status).toBe('refunded');
+    expect(h.asked).not.toContain('accept');
+    expect(qaEvents(h)).toContain('verification.rejected');
+    const statuses = h.events.flatMap((e) => (e.type === 'booking.updated' && e.booking.id === id ? [e.booking.status] : []));
+    expect(statuses).toContain('rejected');
+  });
+
+  it('timeout -> needs_human: the hirer decides; denial counts as a failure and asks for a revision', async () => {
+    const hang: RubricJudge = (req) => new Promise((_, rej) => req.signal.addEventListener('abort', () => rej(new Error('aborted'))));
+    const { h, id } = await placedWith(scripted(hang));
+    vi.mocked(h.gate.request).mockImplementation(async (req) => {
+      h.asked.push(req.action);
+      if (req.action === 'accept') return { approved: false, approval: { status: 'denied', note: 'colours are wrong', decidedBy: 'hirer' } as never };
+      return { approved: true };
+    });
+    await h.svc.deliver(id, { text: 'the final logo' });
+    await vi.waitFor(() => expect(h.status(id)).toBe('in_revision'), { timeout: 3000 });
+    const [first, human] = h.svc.verifications(id);
+    expect(first).toMatchObject({ verdict: 'needs_human' });
+    expect(first!.checks.at(-1)!.detail).toMatch(/timed out/);
+    expect(human).toMatchObject({ verdict: 'fail' });
+    expect(human!.checks.at(-1)).toMatchObject({ name: 'hirer_review', by: 'human', detail: 'colours are wrong' });
+    expect(h.escrow.release).not.toHaveBeenCalled();
+  });
+
+  it('LLM unavailable -> needs_human: nothing is released until a person approves', async () => {
+    const { h, id } = await placedWith(scripted(async () => { throw new Error('529 overloaded'); }));
+    let approve!: (v: { approved: boolean }) => void;
+    vi.mocked(h.gate.request).mockImplementation(async (req) => {
+      h.asked.push(req.action);
+      return req.action === 'accept' ? new Promise((r) => { approve = r; }) : { approved: true };
+    });
+    await h.svc.deliver(id, { text: 'the final logo' });
+    await vi.waitFor(() => expect(h.asked).toContain('accept'));
+    expect(h.status(id)).toBe('delivered');
+    expect(h.store.getBooking(id)?.verification?.verdict).toBe('needs_human');
+    expect(h.escrow.release).not.toHaveBeenCalled();
+    approve({ approved: true });
+    await vi.waitFor(() => expect(h.status(id)).toBe('completed'));
+    expect(h.store.getEscrowByBooking(id)?.status).toBe('released');
   });
 });
