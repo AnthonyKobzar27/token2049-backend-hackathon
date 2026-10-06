@@ -100,6 +100,20 @@ describe('credential-verified cache for the router', () => {
     expect(svc.signals(['freelancer:7']).get('freelancer:7')?.verified).toBe(true);
   });
 
+  it('keeps the last verdict when KERIA answers with a server error', async () => {
+    let t = 1_000_000;
+    const { keria, svc } = setup({ now: () => t, ttlMs: 60_000 });
+    const s = await svc.start(onboarding);
+    await svc.connect(s.id, walletOobi);
+    const credentials = keria.credentials.bind(keria);
+    keria.credentials = () => ({ ...credentials(), get: async () => { throw new Error('HTTP GET /credentials/x - 502 Bad Gateway'); } }) as never;
+    t += 120_000;
+    svc.signals(['freelancer:7']);
+    await flush();
+    expect(svc.checkOf('freelancer:7')).toMatchObject({ result: { valid: true }, error: expect.stringMatching(/502/) });
+    expect(svc.signals(['freelancer:7']).get('freelancer:7')?.verified).toBe(true);
+  });
+
   it('caches presentations received over IPEX', async () => {
     const { keria, issuer, svc } = setup();
     const cred = await issuer.issueToHolder(wallet, { workerId: 'fiverr:ada', platformsVerified: ['fiverr'], verificationMethod: 'platform-oauth' });

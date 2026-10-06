@@ -77,6 +77,9 @@ const K = {
   workers: 'veridian:workers',
 };
 
+/** verifySaid reasons that are verdicts about the credential itself, not about reaching KERIA. */
+const DEFINITE = /unknown credential|not a HAAS Verified Worker credential|is not trusted|revoked|malformed credential|SAID does not match/i;
+
 export function createVeridianService(deps: VeridianServiceDeps): VeridianService {
   const { issuer, store } = deps;
   const ttl = deps.ttlMs ?? 30 * 60_000;
@@ -125,8 +128,9 @@ export function createVeridianService(deps: VeridianServiceDeps): VeridianServic
     const p = issuer
       .verifySaid(said, { timeoutMs: timeout })
       .then((result) => {
-        // A timeout or transport error is not a verdict: keep the last one, note the error.
-        if (!result.valid && result.reason && /timed out|ECONNREFUSED|fetch failed|unreachable/i.test(result.reason)) throw new Error(result.reason);
+        // Only a definite answer replaces the last verdict; anything else (timeout, KERIA 5xx, registry
+        // state not readable) is noted as an error and the worker keeps their label within maxStaleMs.
+        if (!result.valid && !result.registryState && !DEFINITE.test(result.reason ?? '')) throw new Error(result.reason ?? 'verification failed');
         const prev = getJson<CredentialCheck>(K.check(workerId));
         record(workerId, { ...result, holderProven: result.holderProven || (!!prev?.result.holderProven && prev.result.said === result.said) });
       })
