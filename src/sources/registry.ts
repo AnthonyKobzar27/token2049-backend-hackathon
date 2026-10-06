@@ -1,4 +1,7 @@
-// Fans a brief out to every enabled source, with timeouts, a profile cache and stale fallback.
+// Fans a brief out to every enabled source in parallel and answers within a time budget.
+// Cache is stale-while-revalidate: an expired entry is served at once and refreshed in the
+// background. A source that misses the budget is marked late and keeps going in the
+// background (up to its own timeout) so the next search has it. Browser sources never block.
 
 import { createHash } from 'node:crypto';
 import type { Config } from '../config';
@@ -13,8 +16,37 @@ export function queryKey(brief: Brief): string {
   return createHash('sha256').update(JSON.stringify([norm(brief.task), skills, norm(brief.location), norm(brief.language)])).digest('hex').slice(0, 32);
 }
 
-export function createRegistry(deps: { sources: FreelancerSource[]; store: Store; bus: EventBus; config: Config }): SourceRegistry {
+/**
+ * Looser key: skills, location and language without the task wording. Lets a rephrased brief
+ * (the intake model words the task differently each time) still hit a warm cache.
+ */
+export function skillsKey(brief: Brief): string {
+  const skills = brief.skills.map(norm).sort();
+  return `s:${createHash('sha256').update(JSON.stringify([skills, norm(brief.location), norm(brief.language)])).digest('hex').slice(0, 30)}`;
+}
+
+/** Parses "freelancer:8000, rentahuman:5000". */
+export function parseTimeouts(spec: string | undefined): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const part of (spec ?? '').split(',')) {
+    const [name, ms] = part.split(':').map((s) => s.trim());
+    const n = Number(ms);
+    if (name && Number.isFinite(n) && n > 0) out.set(name, n);
+  }
+  return out;
+}
+
+export interface Registry extends SourceRegistry {
+  /** Resolves when every background refresh started so far has finished (tests, cache warming). */
+  settle(): Promise<void>;
+}
+
+type Fetched = { ok: true; profiles: FreelancerProfile[] } | { ok: false; error: string };
+
+export function createRegistry(deps: { sources: FreelancerSource[]; store: Store; bus: EventBus; config: Config }): Registry {
   const { sources, store, bus, config } = deps;
+  const timeouts = parseTimeouts(config.SOURCE_TIMEOUTS);
+  const inflight = new Map<string, Promise<Fetched>>();
 
   const safe = <T>(fn: () => T): T | undefined => {
     try {
@@ -23,66 +55,144 @@ export function createRegistry(deps: { sources: FreelancerSource[]; store: Store
       return undefined;
     }
   };
+  const explicitlyListed = (): Set<string> | null => (config.SOURCES ? new Set(config.SOURCES.split(',').map((s) => s.trim()).filter(Boolean)) : null);
   const enabled = (): FreelancerSource[] => {
-    const allow = config.SOURCES ? new Set(config.SOURCES.split(',').map((s) => s.trim()).filter(Boolean)) : null;
-    return sources.filter((s) => (allow ? allow.has(s.name) : true) && safe(() => s.isEnabled()) === true);
+    const allow = explicitlyListed();
+    return sources.filter((s) => {
+      if (allow ? !allow.has(s.name) : s.kind === 'browser' && !config.BROWSER_SOURCES) return false;
+      return safe(() => s.isEnabled()) === true;
+    });
   };
 
-  async function searchOne(source: FreelancerSource, brief: Brief, key: string, limit: number, progress: (m: string) => void): Promise<{ profiles: FreelancerProfile[]; status: SourceStatus }> {
-    const started = Date.now();
-    const status = (p: Partial<SourceStatus> & { count: number; ok: boolean; cached: boolean }): SourceStatus => ({ source: source.name, ms: Date.now() - started, ...p });
-    progress(`Searching ${source.name}…`);
-
-    const fresh = safe(() => store.getCachedProfiles(source.name, key, config.PROFILE_CACHE_TTL_MIN * 60_000));
-    if (fresh) {
-      progress(`${source.name}: ${fresh.length} profiles`);
-      return { profiles: fresh, status: status({ ok: true, cached: true, count: fresh.length }) };
+  const cacheGet = (source: string, keys: string[], maxAgeMs: number): FreelancerProfile[] | null => {
+    for (const k of keys) {
+      const hit = safe(() => store.getCachedProfiles(source, k, maxAgeMs));
+      if (hit) return hit;
     }
+    return null;
+  };
 
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
+  /** One live request, deduplicated per (source, key), capped by the source's own timeout; fills the cache. */
+  function fetchLive(source: FreelancerSource, brief: Brief, keys: string[], limit: number, onLate?: (r: Fetched) => void): Promise<Fetched> {
+    const id = `${source.name}|${keys[0]}`;
+    let p = inflight.get(id);
+    if (!p) {
+      const cap = timeouts.get(source.name) ?? config.SOURCE_TIMEOUT_MS;
+      const controller = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`timed out after ${config.SOURCE_TIMEOUT_MS} ms`));
+          reject(new Error(`timed out after ${cap} ms`));
           controller.abort();
-        }, config.SOURCE_TIMEOUT_MS);
+        }, cap);
+        (timer as { unref?: () => void }).unref?.();
       });
-      const found = await Promise.race([source.search(brief, { limit, signal: controller.signal }), timeout]);
-      const profiles = found.slice(0, limit);
-      safe(() => store.putProfiles(source.name, key, profiles));
-      progress(`${source.name}: ${profiles.length} profiles`);
-      return { profiles, status: status({ ok: true, cached: false, count: profiles.length }) };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const stale = safe(() => store.getCachedProfiles(source.name, key, Number.MAX_SAFE_INTEGER)) ?? [];
-      progress(`${source.name}: unavailable`);
-      return { profiles: stale, status: status({ ok: false, cached: stale.length > 0, count: stale.length, error: message }) };
-    } finally {
-      clearTimeout(timer);
+      p = Promise.race([Promise.resolve().then(() => source.search(brief, { limit, signal: controller.signal })), timeout])
+        .then((found): Fetched => {
+          const profiles = found.slice(0, limit);
+          for (const k of keys) safe(() => store.putProfiles(source.name, k, profiles));
+          return { ok: true, profiles };
+        })
+        .catch((err): Fetched => ({ ok: false, error: err instanceof Error ? err.message : String(err) }))
+        .finally(() => {
+          clearTimeout(timer);
+          inflight.delete(id);
+        });
+      inflight.set(id, p);
     }
+    if (onLate) void p.then(onLate);
+    return p;
+  }
+
+  async function searchOne(
+    source: FreelancerSource,
+    brief: Brief,
+    keys: string[],
+    limit: number,
+    deadline: Promise<'deadline'>,
+    progress: (m: string) => void,
+    done: (s: SourceStatus) => void,
+  ): Promise<{ profiles: FreelancerProfile[]; status: SourceStatus }> {
+    const started = Date.now();
+    const finish = (profiles: FreelancerProfile[], p: Omit<SourceStatus, 'source' | 'ms' | 'count'>) => {
+      const status: SourceStatus = { source: source.name, ms: Date.now() - started, count: profiles.length, ...p };
+      done(status);
+      return { profiles, status };
+    };
+    const background = (r: Fetched) => progress(r.ok ? `${source.name}: ${r.profiles.length} profiles (late, ready for the next search)` : `${source.name}: background refresh failed`);
+
+    const ttl = config.DEMO_MODE ? Number.MAX_SAFE_INTEGER : config.PROFILE_CACHE_TTL_MIN * 60_000;
+    const fresh = cacheGet(source.name, keys.slice(0, 1), ttl);
+    if (fresh) {
+      progress(`${source.name}: ${fresh.length} profiles (cached)`);
+      return finish(fresh, { ok: true, cached: true });
+    }
+    // Rephrased brief or expired entry: serve it now, refresh behind (except in a pinned demo).
+    const stale = cacheGet(source.name, keys, Number.MAX_SAFE_INTEGER);
+    if (stale) {
+      const exactExpired = !!cacheGet(source.name, keys.slice(0, 1), Number.MAX_SAFE_INTEGER);
+      const pinned = config.DEMO_MODE;
+      if (!pinned) fetchLive(source, brief, keys, limit, background);
+      progress(`${source.name}: ${stale.length} profiles (cached${pinned ? '' : ', refreshing'})`);
+      return finish(stale, { ok: true, cached: true, ...(!pinned && exactExpired && { stale: true }) });
+    }
+
+    if (source.kind === 'browser') {
+      // Never wait on a browser: read in the background for next time.
+      fetchLive(source, brief, keys, limit, background);
+      progress(`${source.name}: reading in the background`);
+      return finish([], { ok: false, cached: false, late: true, error: 'reading in the background' });
+    }
+
+    progress(`Searching ${source.name}…`);
+    const live = fetchLive(source, brief, keys, limit);
+    const r = await Promise.race([live, deadline]);
+    if (r === 'deadline') {
+      void live.then(background);
+      progress(`${source.name}: still searching, ranking without it`);
+      return finish([], { ok: false, cached: false, late: true, error: `no answer within the ${Date.now() - started} ms budget` });
+    }
+    if (r.ok) {
+      progress(`${source.name}: ${r.profiles.length} profiles`);
+      return finish(r.profiles, { ok: true, cached: false });
+    }
+    progress(`${source.name}: unavailable`);
+    return finish([], { ok: false, cached: false, error: r.error });
   }
 
   return {
     all: () => [...sources],
     enabled,
     get: (name) => sources.find((s) => s.name === name),
+    async settle() {
+      while (inflight.size > 0) await Promise.allSettled([...inflight.values()]);
+    },
     async searchAll(brief, opts) {
-      const key = queryKey(brief);
+      const keys = [queryKey(brief), skillsKey(brief)];
+      const budget = Math.max(0, Math.min(opts.budgetMs ?? config.SEARCH_BUDGET_MS, config.DEMO_MODE ? config.DEMO_BUDGET_MS : Number.MAX_SAFE_INTEGER));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<'deadline'>((resolve) => {
+        timer = setTimeout(() => resolve('deadline'), budget);
+      });
       const progress = (message: string): void => {
         if (opts.jobId) bus.emit({ type: 'job.progress', jobId: opts.jobId, message });
       };
-      const results = await Promise.all(enabled().map((s) => searchOne(s, brief, key, opts.limitPerSource, progress)));
-      const seen = new Set<string>();
-      const profiles: FreelancerProfile[] = [];
-      for (const r of results) {
-        for (const p of r.profiles) {
-          if (seen.has(p.id)) continue;
-          seen.add(p.id);
-          profiles.push(p);
+      const done = (status: SourceStatus): void => bus.emit({ type: 'source.done', ...(opts.jobId && { jobId: opts.jobId }), status });
+      try {
+        const results = await Promise.all(enabled().map((s) => searchOne(s, brief, keys, opts.limitPerSource, deadline, progress, done)));
+        const seen = new Set<string>();
+        const profiles: FreelancerProfile[] = [];
+        for (const r of results) {
+          for (const p of r.profiles) {
+            if (seen.has(p.id)) continue;
+            seen.add(p.id);
+            profiles.push(p);
+          }
         }
+        return { profiles, sources: results.map((r) => r.status) };
+      } finally {
+        clearTimeout(timer);
       }
-      return { profiles, sources: results.map((r) => r.status) };
     },
   };
 }

@@ -35,7 +35,19 @@ const schema = z.object({
 
   /** Comma-separated source names to enable; unset means every configured source. */
   SOURCES: optional,
+  /** Hard cap on one source request; a source still running when the search budget ends keeps going in the background up to this. */
   SOURCE_TIMEOUT_MS: int(60_000),
+  /** Per-source caps overriding SOURCE_TIMEOUT_MS, e.g. "freelancer:8000,rentahuman:5000". */
+  SOURCE_TIMEOUTS: optional,
+  /** Whole routing request (search plus scoring) should answer within this; late sources are marked and ranked next time. */
+  SEARCH_BUDGET_MS: int(6_000),
+  /** Stage demo: cached results never expire or refresh, and the budget drops to DEMO_BUDGET_MS. Warm it with scripts/demo-warm.ts. */
+  DEMO_MODE: bool(false),
+  DEMO_BUDGET_MS: int(2_000),
+  /** Browser-read sources (Fiverr and co.) are opt-in; even then they never block a search (cache plus background refresh). */
+  BROWSER_SOURCES: bool(false),
+  /** JSON overrides of the scoring weights per task type, e.g. {"in_person":{"location":0.4}}. */
+  ROUTER_WEIGHTS: optional,
   PROFILE_CACHE_TTL_MIN: int(360),
   SHORTLIST_SIZE: int(5),
   /** Minutes an unanswered check-in stays open before the job ends with no booking. */

@@ -148,6 +148,8 @@ export interface SourceStatus {
   error?: string;
   /** Did not answer within the search budget; still running in the background to warm the cache. */
   late?: boolean;
+  /** Served from an expired cache entry while a refresh runs in the background. */
+  stale?: boolean;
 }
 
 export interface Shortlist {
