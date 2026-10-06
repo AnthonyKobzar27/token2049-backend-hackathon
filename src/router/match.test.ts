@@ -61,7 +61,9 @@ describe('hard filters', () => {
     expect(dropReason(b, prof('empty'))).toBeNull();
     expect(dropReason({ ...b, hoursNeeded: undefined }, prof('hourly', { pricing: [hourly(500)] }))).toBeNull();
     expect(dropReason(b, prof('mixed', { pricing: [fixed(5), { kind: 'fixed', amountUsd: 5 }], languages: [] }))).toBeNull();
-    expect(dropReason(b, prof('cityonly', { city: 'Pune' }))).toBeNull();
+    expect(dropReason(b, prof('cityonly', { city: 'Smallville' }))).toBeNull();
+    // A city the gazetteer knows is placed even without a country.
+    expect(dropReason(b, prof('pune', { city: 'Pune' }))).toBe('location');
   });
 });
 

@@ -35,7 +35,25 @@ export interface Brief {
   /** ISO 639-1 code the freelancer must work in. */
   language?: string;
   notes?: string;
+  /** When the work should happen (mostly for in-person tasks). Times are local to `when.timezone` (else `timezone`). */
+  when?: BriefWhen;
+  /** On-site only: how far from `location` the freelancer may be, in km. Default set by the router. */
+  radiusKm?: number;
+  /** Overrides the router's task-type inference, which picks the scoring weights. */
+  taskType?: TaskType;
 }
+
+/** A specific day and/or time window. */
+export interface BriefWhen {
+  /** YYYY-MM-DD. */
+  date?: string;
+  /** 24h "HH:MM" local times; end may be "24:00". */
+  window?: { start: string; end: string };
+  /** IANA zone the date and window are in. */
+  timezone?: string;
+}
+
+export type TaskType = 'in_person' | 'remote_creative' | 'remote_technical' | 'remote_general';
 
 // -------------------------------------------------------------- profiles
 
@@ -55,6 +73,10 @@ export interface Availability {
   /** Typical hours to first reply. */
   responseHours?: number;
   hoursPerWeek?: number;
+  /** Weekly working windows in the profile's local time, keyed by lower-case English weekday ("monday"). */
+  schedule?: Record<string, { start: string; end: string }[]>;
+  /** The platform says the person is currently taking work. */
+  accepting?: boolean;
 }
 
 /** One freelancer (or one gig of theirs) normalised across platforms. */
@@ -96,6 +118,10 @@ export interface Subscores {
   rating: number | null;
   availability: number | null;
   speed: number | null;
+  /** Distance or place fit. Absent when the brief states no place preference. */
+  location?: number | null;
+  /** Fit for the brief's specific day and time window. Absent when the brief gives none. */
+  timing?: number | null;
 }
 
 export interface Candidate {
@@ -120,6 +146,8 @@ export interface SourceStatus {
   cached: boolean;
   ms: number;
   error?: string;
+  /** Did not answer within the search budget; still running in the background to warm the cache. */
+  late?: boolean;
 }
 
 export interface Shortlist {
@@ -330,6 +358,8 @@ export interface EscrowRecord {
 export type HaasEvent =
   | { type: 'job.updated'; job: Job }
   | { type: 'job.progress'; jobId: string; message: string }
+  /** One source finished (or ran out of time) during a search. */
+  | { type: 'source.done'; jobId?: string; status: SourceStatus }
   | { type: 'shortlist.ready'; job: Job; shortlist: Shortlist }
   | { type: 'booking.updated'; booking: Booking }
   | { type: 'escrow.updated'; escrow: EscrowRecord }
