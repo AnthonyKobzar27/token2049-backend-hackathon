@@ -103,12 +103,37 @@ const schema = z.object({
   /** Contract address of our V2 payment source, for masumiPayment.PaymentSource when the payment service does not return it. */
   MASUMI_SMART_CONTRACT_ADDRESS: optional,
 
-  /** x402 paywall on Cardano. Unset X402_PAY_TO disables it. */
-  X402_FACILITATOR_URL: z.string().default('http://localhost:4022'),
-  X402_NETWORK: z.string().default('cardano:preprod'),
+  /**
+   * x402 paywall, chain-pluggable (src/payments/x402-networks.ts, docs/X402.md).
+   * Comma-separated networks offered in one 402: cardano:preprod | cardano:mainnet | solana:devnet |
+   * solana:mainnet (or Solana CAIP-2 ids). A network without its pay-to address is skipped;
+   * no payable network disables the paywall.
+   */
+  X402_NETWORK: z.string().default('cardano:preprod,solana:devnet'),
+  /** auto = the chain's stablecoin (USDM on Cardano, USDC on Solana). ADA prices Cardano in lovelace. */
+  X402_ASSET: z
+    .string()
+    .default('auto')
+    .transform((v) => v.trim().toUpperCase())
+    .pipe(z.enum(['AUTO', 'USDM', 'USDC', 'ADA'])),
+  /** Price of one routing request in USD, charged in the stablecoin. */
+  X402_PRICE_USD: z.coerce.number().positive().default(0.5),
+  /** Cardano receiving address (addr_test1... on preprod). */
   X402_PAY_TO: optional,
-  /** Price of one routing request, in lovelace. */
+  /** Cardano facilitator. Unset: the Cardano Foundation's hosted one for the network. */
+  X402_FACILITATOR_URL: optional,
+  /** Tried when the Cardano facilitator above is unreachable at startup: the self-hosted one (infra/x402-facilitator). "off" disables. */
+  X402_FACILITATOR_FALLBACK_URL: z.string().default('http://localhost:4022'),
+  /** USDM unit (policyId + asset name hex) on Cardano. Unset: Masumi's USDM for the network. */
+  X402_CARDANO_USDM_UNIT: optional,
+  /** Price of one routing request when X402_ASSET=ADA, in lovelace. */
   X402_PRICE_LOVELACE: int(2_000_000),
+  /** Solana receiving wallet (base58). */
+  X402_SOLANA_PAY_TO: optional,
+  /** Solana facilitator; x402.org serves devnet only, mainnet needs e.g. the Coinbase CDP one. */
+  X402_SOLANA_FACILITATOR_URL: z.string().default('https://x402.org/facilitator'),
+  /** Base58 secret key of the wallet our own client pays x402 with on Solana (spike and demo only). */
+  X402_SOLANA_CLIENT_SECRET: optional,
   BLOCKFROST_PROJECT_ID: optional,
   /** Mnemonic of the wallet our own client pays x402 with (spike and demo only). */
   X402_CLIENT_MNEMONIC: optional,

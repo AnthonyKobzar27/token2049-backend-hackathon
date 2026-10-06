@@ -1,25 +1,25 @@
-// x402 paywall on Cardano in front of the routing API. POST /x402/route costs
-// X402_PRICE_LOVELACE; job status and check-in answers stay unpaid (the job id is the capability).
+// x402 paywall in front of the routing API, chain-pluggable: one 402 can offer Cardano (USDM, or
+// tADA) and Solana (USDC) at once, and the client pays on whichever it supports. POST /x402/route
+// costs X402_PRICE_USD; job status and check-in answers stay unpaid (the job id is the capability).
+// Networks, assets and facilitators come from src/payments/x402-networks.ts.
 //
-// Cardano uses the x402 "authorization" flow: the handler runs after /verify, its response is
-// held back, and the facilitator broadcasts the client's signed transaction and waits for the
-// confirmation policy (bounded, default 75 s, retried once by core) before the response is released.
-// So the 202 reaches the payer only once the payment is on chain. The job is started in the
-// after-settle hook, never before the money moved, under an id derived from the tx hash so a
-// retried paid request cannot start a second job.
+// Both chains use the x402 "authorization" flow: the handler runs after /verify, its response is
+// held back, and the facilitator settles (Cardano: broadcasts the client's signed tx and waits for
+// the confirmation policy; Solana: co-signs as fee payer and submits) before the response is
+// released. The job is started in the after-settle hook, never before the money moved, under an
+// id derived from the payment so a retried paid request cannot start a second job. The brief
+// waiting for settlement is kept in the Store, so a restart does not lose it.
 
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { x402ResourceServer, paymentMiddleware } from '@x402/express';
 import { HTTPFacilitatorClient, type RoutesConfig } from '@x402/core/server';
 import { decodePaymentSignatureHeader } from '@x402/core/http';
-import { decodeCardanoTransaction } from '@x402/cardano';
 import { ExactCardanoScheme } from '@x402/cardano/exact/server';
+import { ExactSvmScheme } from '@x402/svm/exact/server';
 import type { ApiDeps, MountX402 } from '../domain/ports';
-import type { Brief, UserInput } from '../domain/types';
-
-/** Evidence required before the 202 is released: 0 = the tx is in a block (about 20 s on average). */
-const L1_CONFIRMATIONS = 0;
+import type { Brief, PaymentSettlement, UserInput } from '../domain/types';
+import { explorerUrl, networkLabel, paymentKey, resolveAccepts } from './x402-networks';
 
 const briefSchema = z.object({
   task: z.string().trim().min(1),
@@ -42,13 +42,26 @@ const inputSchema = z.discriminatedUnion('action', [
 
 const issues = (e: z.ZodError) => e.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`);
 
-/** Job id for a paid request: stable per payment transaction. */
+/** Job id for a paid request: stable per payment (see paymentKey). */
 export const jobIdForTx = (txHash: string): string => `job_${txHash.slice(0, 12).toLowerCase()}`;
 
-function txHashOf(header: string | undefined): string | undefined {
+/** Store key of the brief of a paid request waiting for settlement. */
+export const pendingKey = (jobId: string) => `x402:pending:${jobId}`;
+
+interface Pending {
+  brief: Brief;
+  network: string;
+  at: number;
+}
+
+/** Payment key, network and job id of a PAYMENT-SIGNATURE header, or undefined when it does not parse. */
+function paidRequest(header: string | undefined): { key: string; network: string; id: string } | undefined {
   if (!header) return undefined;
   try {
-    return decodeCardanoTransaction(String(decodePaymentSignatureHeader(header).payload.transaction)).txHash;
+    const p = decodePaymentSignatureHeader(header);
+    const network = String(p.accepted?.network ?? '');
+    const key = paymentKey(network, p.payload as Record<string, unknown>);
+    return { key, network, id: jobIdForTx(key) };
   } catch {
     return undefined;
   }
@@ -70,9 +83,17 @@ export const mountX402: MountX402 = (app: Express, deps: ApiDeps) => {
   };
 
   app.get('/x402/jobs/:id', (req, res) => {
+    const id = String(req.params.id);
+    // Paid, settlement still in flight: the job starts once the payment is on chain.
+    const pending = !jobs.getJob(id) && deps.store.getKv(pendingKey(id));
+    if (pending) {
+      const p = JSON.parse(pending) as Pending;
+      return void res.json({ job_id: id, status: 'awaiting_payment', network: p.network, brief: p.brief });
+    }
     const job = ownJob(req, res);
     if (!job) return;
     const body: Record<string, unknown> = { job_id: job.id, status: job.status, round: job.round, brief: job.brief };
+    if (job.settlement) body.settlement = job.settlement;
     if (job.status === 'awaiting_input') {
       const sl = jobs.getShortlist(job.id);
       body.candidates = (sl?.candidates ?? []).map((c) => ({
@@ -107,13 +128,13 @@ export const mountX402: MountX402 = (app: Express, deps: ApiDeps) => {
   });
 
   // ---- the paywalled route
-  if (!config.X402_PAY_TO) {
-    console.log('x402 disabled (X402_PAY_TO not set)');
+  const { accepts, skipped } = resolveAccepts(config);
+  for (const why of skipped) console.log(`x402: not offering ${why}`);
+  if (accepts.length === 0) {
+    console.log('x402 disabled (no payable network: set X402_PAY_TO for Cardano and/or X402_SOLANA_PAY_TO for Solana)');
     return;
   }
-
-  /** Briefs of paid requests waiting for settlement, by tx hash. */
-  const pending = new Map<string, Brief>();
+  const { store } = deps;
 
   // Bad bodies are rejected before payment, so nobody pays for a request that cannot run.
   const validate = (req: Request, res: Response, next: NextFunction) => {
@@ -125,22 +146,40 @@ export const mountX402: MountX402 = (app: Express, deps: ApiDeps) => {
   };
   app.use('/x402/route', json, validate);
 
-  const facilitator = new HTTPFacilitatorClient({
-    url: config.X402_FACILITATOR_URL,
-    // Must exceed the facilitator's own settlement wait (75 s by default).
-    timeoutMs: 120_000,
-  });
-  const server = new x402ResourceServer(facilitator).register(config.X402_NETWORK as `${string}:${string}`, new ExactCardanoScheme());
+  // Earlier facilitators win per network; one that is down at startup is skipped, so the
+  // self-hosted Cardano facilitator takes over when the hosted one is unreachable.
+  // The timeout must exceed the Cardano facilitator's own settlement wait (75 s by default).
+  const urls = [...new Set(accepts.flatMap((a) => a.facilitators))];
+  const server = new x402ResourceServer(urls.map((url) => new HTTPFacilitatorClient({ url, timeoutMs: 120_000 })));
+  for (const a of accepts) server.register(a.network, a.chain === 'cardano' ? new ExactCardanoScheme() : new ExactSvmScheme());
 
-  server.onAfterSettle(async ({ paymentPayload, result }) => {
+  server.onAfterSettle(async ({ paymentPayload, requirements, result }) => {
     if (!result.success) return;
     try {
-      const txHash = decodeCardanoTransaction(String(paymentPayload.payload.transaction)).txHash;
-      const id = jobIdForTx(txHash);
-      const brief = pending.get(txHash);
-      pending.delete(txHash);
-      if (!brief || jobs.getJob(id)) return;
-      jobs.startJob({ brief, client: 'x402', id });
+      const network = String(requirements.network);
+      const id = jobIdForTx(paymentKey(network, paymentPayload.payload as Record<string, unknown>));
+      const accepted = accepts.find((a) => a.network === network);
+      const settlement: PaymentSettlement = {
+        protocol: 'x402',
+        network,
+        asset: accepted?.symbol ?? String(requirements.asset),
+        amount: String(result.amount ?? requirements.amount),
+        transaction: result.transaction,
+        explorerUrl: explorerUrl(network, result.transaction),
+        payer: result.payer,
+        settledAt: Date.now(),
+      };
+      // Idempotent: a job exists at most once per payment, whatever retries or restarts happen.
+      if (jobs.getJob(id)) {
+        if (!store.getJob(id)?.settlement) store.updateJob(id, { settlement });
+        return;
+      }
+      const raw = store.getKv(pendingKey(id));
+      if (!raw) return void console.error(`x402: settled ${result.transaction} but no pending brief for ${id}`);
+      const pending = JSON.parse(raw) as Pending;
+      jobs.startJob({ brief: pending.brief, client: 'x402', id });
+      store.updateJob(id, { settlement });
+      store.setKv(pendingKey(id), '');
     } catch (e) {
       console.error('x402: could not start the job after settlement:', e instanceof Error ? e.message : e);
     }
@@ -148,14 +187,14 @@ export const mountX402: MountX402 = (app: Express, deps: ApiDeps) => {
 
   const routes: RoutesConfig = {
     'POST /x402/route': {
-      accepts: {
+      accepts: accepts.map((a) => ({
         scheme: 'exact',
-        network: config.X402_NETWORK as `${string}:${string}`,
-        payTo: config.X402_PAY_TO,
-        price: { amount: String(config.X402_PRICE_LOVELACE), asset: 'lovelace' },
+        network: a.network,
+        payTo: a.payTo,
+        price: { amount: a.amount, asset: a.asset },
         maxTimeoutSeconds: 600,
-        extra: { assetTransferMethod: 'default', areFeesSponsored: false, confirmationPolicy: { l1Confirmations: L1_CONFIRMATIONS } },
-      },
+        extra: a.extra,
+      })),
       description: 'HAAS routing: search freelancer platforms, rank candidates, book the one you confirm',
       mimeType: 'application/json',
     },
@@ -164,13 +203,15 @@ export const mountX402: MountX402 = (app: Express, deps: ApiDeps) => {
 
   app.post('/x402/route', (req, res) => {
     const brief = res.locals.brief as Brief;
-    const txHash = txHashOf(req.get('payment-signature') ?? undefined);
-    if (!txHash) return void res.status(400).json({ error: 'missing payment' });
-    pending.set(txHash, brief);
-    if (pending.size > 1000) pending.delete(pending.keys().next().value!);
-    const id = jobIdForTx(txHash);
-    res.status(202).json({ job_id: id, status_url: `${publicUrl}/x402/jobs/${id}` });
+    const paid = paidRequest(req.get('payment-signature') ?? undefined);
+    if (!paid) return void res.status(400).json({ error: 'missing payment' });
+    // First brief per payment wins: a retry (even after a restart) cannot swap the paid request.
+    if (!jobs.getJob(paid.id) && !store.getKv(pendingKey(paid.id))) {
+      store.setKv(pendingKey(paid.id), JSON.stringify({ brief, network: paid.network, at: Date.now() } satisfies Pending));
+    }
+    res.status(202).json({ job_id: paid.id, status_url: `${publicUrl}/x402/jobs/${paid.id}` });
   });
 
-  console.log(`x402 enabled: POST /x402/route costs ${config.X402_PRICE_LOVELACE} lovelace on ${config.X402_NETWORK}, facilitator ${config.X402_FACILITATOR_URL}`);
+  const offer = accepts.map((a) => `${(Number(a.amount) / 10 ** a.decimals).toString()} ${a.symbol} on ${networkLabel(a.network)}`).join(' or ');
+  console.log(`x402 enabled: POST /x402/route costs ${offer}; facilitators ${urls.join(', ')}`);
 };

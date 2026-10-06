@@ -33,7 +33,7 @@ Nothing is booked until a person agrees.
 ```
 Sokosumi / any Masumi agent ─┐
 Telegram bot                 ├─> HAAS agent API (MIP-003)
-x402 client (Cardano)        ─┘     start_job · status · provide_input
+x402 client (Cardano/Solana) ─┘     start_job · status · provide_input
                                         │
                                    Router: search -> normalise -> filter -> rank -> explain
                                         │
@@ -45,7 +45,7 @@ x402 client (Cardano)        ─┘     start_job · status · provide_input
 - **Front doors.** A standard Masumi agent API (MIP-003), a Telegram bot for people, and an x402 pay-per-request endpoint for agents that don't speak Masumi.
 - **Sources.** Official APIs where they exist. Platforms without one are read in the operator's own logged-in Chrome at human pace; if a site asks for a human check, HAAS stops and asks the operator. It does not solve challenges or disguise itself.
 - **Payments.**
-  - *Job fee on Cardano*: through the Masumi Payment Service, or x402 on Cardano Preprod.
+  - *Job fee*: through the Masumi Payment Service on Cardano, or x402 in stablecoin (USDM on Cardano Preprod or USDC on Solana devnet; one setting picks the chains, see [docs/X402.md](docs/X402.md)).
   - *Booking budget on Solana*: the hirer's budget is held in USDC per booking, released when the delivery is accepted and refunded on cancellation.
 
 ## Honest limits

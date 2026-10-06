@@ -172,6 +172,22 @@ export interface JobPayment {
   collectionTxHash?: string;
 }
 
+/** On-chain settlement of a paid request (x402). */
+export interface PaymentSettlement {
+  protocol: 'x402';
+  /** x402 network id, e.g. "cardano:preprod" or a Solana CAIP-2 id. */
+  network: string;
+  /** USDM | USDC | ADA */
+  asset: string;
+  /** Atomic units paid. */
+  amount: string;
+  /** Settlement transaction hash (Cardano) or signature (Solana). */
+  transaction: string;
+  explorerUrl?: string;
+  payer?: string;
+  settledAt: Ms;
+}
+
 export interface JobResult {
   outcome: 'booked' | 'handoff' | 'no_booking';
   summary: string;
@@ -180,6 +196,8 @@ export interface JobResult {
   bookingId?: string;
   bookingRef?: string;
   bookingUrl?: string;
+  /** How the job was paid, when it was paid over x402. */
+  settlement?: PaymentSettlement;
 }
 
 export interface Job {
@@ -194,6 +212,8 @@ export interface Job {
   selectedProfileId?: string;
   bookingId?: string;
   payment?: JobPayment;
+  /** x402 settlement of the job fee. */
+  settlement?: PaymentSettlement;
   result?: JobResult;
   error?: string;
   createdAt: Ms;
