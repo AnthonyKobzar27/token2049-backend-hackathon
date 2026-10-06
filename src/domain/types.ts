@@ -142,7 +142,7 @@ export interface SuitabilityScore {
 /** MIP-003 job statuses. */
 export type JobStatus = 'awaiting_payment' | 'awaiting_input' | 'running' | 'completed' | 'failed';
 
-export type JobClient = 'masumi' | 'telegram' | 'x402' | 'local';
+export type JobClient = 'masumi' | 'telegram' | 'x402' | 'local' | 'sokosumi';
 
 /** Masumi payment terms returned from /start_job. Times are epoch ms. */
 export interface JobPayment {
@@ -157,6 +157,19 @@ export interface JobPayment {
   externalDisputeUnlockTime: Ms;
   paidAt?: Ms;
   resultSubmittedAt?: Ms;
+  /** Dynamic pricing: the amounts requested for this job (atomic units; unit "" is lovelace). */
+  amounts?: { amount: string; unit: string }[];
+  /** V2 payment sources: the source type and index the buyer must echo in POST /purchase. */
+  paymentSourceType?: string;
+  supportedPaymentSourceIndex?: number;
+  smartContractAddress?: string;
+  /** The result hash submitted on chain. */
+  resultHash?: string;
+  /** Last on-chain state seen for the escrow, e.g. FundsLocked, ResultSubmitted, Withdrawn. */
+  onChainState?: string;
+  /** Seller collection (withdrawal after unlockTime), done by the payment service. */
+  collectedAt?: Ms;
+  collectionTxHash?: string;
 }
 
 export interface JobResult {

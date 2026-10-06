@@ -57,6 +57,40 @@ const schema = z.object({
   MASUMI_NETWORK: z.enum(['Preprod', 'Mainnet']).default('Preprod'),
   MASUMI_AGENT_IDENTIFIER: optional,
   MASUMI_SELLER_VKEY: optional,
+  /** Ed25519 seed (64 hex chars) that signs /provide_input responses. Unset: generated once and kept in the database. */
+  MASUMI_SIGNING_KEY: optional,
+  /** Accept /provide_input without input_schema_hash (pre 2026-03 MIP-003 clients). A wrong hash is always rejected. */
+  MASUMI_LENIENT_SCHEMA_HASH: bool(false),
+  /** Must match the registration: Dynamic sends RequestedFunds with every payment request, Fixed sends none. */
+  MASUMI_PRICING_TYPE: z.enum(['Dynamic', 'Fixed']).default('Dynamic'),
+  /** Asset of the Dynamic job fee: policy id + asset name hex (default test USDM on Preprod); "" or "lovelace" for ADA. */
+  MASUMI_PRICE_UNIT: z.string().default('16a55b2a349361ff88c03788f93e1e966e5d689605d044fef722ddde0014df10745553444d'),
+  /** Base job fee in atomic units (USDM has 6 decimals: 1000000 = 1 USDM). */
+  MASUMI_PRICE_AMOUNT: z.string().regex(/^[1-9]\d{0,18}$/).default('1000000'),
+  /** Adds this percent of the brief's budget_usd to the fee (USDM only, 1 USDM = 1 USD). 0 keeps the flat fee. */
+  MASUMI_FEE_PERCENT: z.coerce.number().min(0).max(100).default(0),
+  /** Ceiling of the quoted fee in atomic units. */
+  MASUMI_PRICE_MAX_AMOUNT: z.string().regex(/^[1-9]\d{0,18}$/).default('25000000'),
+  /** Index of our Cardano source in the registry entry; unset means look it up. */
+  MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).max(24).optional()),
+  /** Payment deadlines, in minutes. The result window covers search, the check-in and the booking: it does not pause while a human answers. */
+  MASUMI_PAY_WINDOW_MIN: int(60),
+  MASUMI_RESULT_WINDOW_MIN: int(480),
+  MASUMI_UNLOCK_DELAY_MIN: int(20),
+  MASUMI_DISPUTE_DELAY_MIN: int(20),
+
+  /** Sokosumi Coworker worker (Tasks). Unset SOKOSUMI_COWORKER_ID disables it. */
+  SOKOSUMI_COWORKER_ID: optional,
+  /** coworker_* runtime key. Unset: the sokosumi CLI's OS vault is used for runtime commands. */
+  SOKOSUMI_COWORKER_API_KEY: optional,
+  SOKOSUMI_API_URL: z.string().default('https://api.preprod.sokosumi.com'),
+  /** Event or organization Workspace. Unset means the Personal Workspace. */
+  SOKOSUMI_ORGANIZATION_ID: optional,
+  SOKOSUMI_ORGANIZATION_SLUG: optional,
+  SOKOSUMI_CLI: z.string().default('sokosumi'),
+  SOKOSUMI_POLL_MS: int(10_000),
+  /** Charge each Task the Masumi job fee (needs MASUMI_* set and a confirmed Dynamic registration). */
+  SOKOSUMI_PAID_TASKS: bool(false),
 
   /** x402 paywall on Cardano. Unset X402_PAY_TO disables it. */
   X402_FACILITATOR_URL: z.string().default('http://localhost:4022'),
