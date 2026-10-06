@@ -53,7 +53,11 @@ export function createMeshChain(opts: MeshChainOptions): ReputationChain & { wal
       const script: NativeScript = opts.policyLockSlot !== undefined ? { type: 'all', scripts: [sig, { type: 'before', slot: String(opts.policyLockSlot) }] } : sig;
       const forging = ForgeScript.fromNativeScript(script);
       return { address, script, forging, policyId: resolveScriptHash(forging) };
-    })());
+    })().catch((err) => {
+      // A Blockfrost blip at boot must not disable identity until the next restart.
+      setup = undefined;
+      throw err;
+    }));
 
   /** Operator UTxOs that hold none of our policy's tokens, so coin selection never moves a reference NFT. */
   async function spendable(policyId: string): Promise<UTxO[]> {

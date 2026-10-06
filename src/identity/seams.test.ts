@@ -122,3 +122,31 @@ describe('verified label in ranking', () => {
     expect(byId.c).toBeUndefined();
   });
 });
+
+describe('reputation minter ticks', () => {
+  it('recovers after a failed tick and coalesces concurrent ticks', async () => {
+    const { store, bus, registry, minter } = setup();
+    registry.bindWallet('fake:w1', W1);
+    store.insertJob(job('job_bk9'));
+    const b = booking('bk9', { resultHash: 'h'.repeat(64) });
+    store.insertBooking(b);
+    minter.start();
+    bus.emit({ type: 'booking.updated', booking: b });
+    // The task index read fails once (e.g. SQLite busy).
+    const getKv = store.getKv.bind(store);
+    let fail = true;
+    store.getKv = (k: string) => {
+      if (fail && k === 'identity:tasks') {
+        fail = false;
+        throw new Error('database is locked');
+      }
+      return getKv(k);
+    };
+    await expect(minter.tick()).rejects.toThrow('database is locked');
+    const ticks = [minter.tick(), minter.tick(), minter.tick()];
+    expect(ticks[1]).toBe(ticks[2]); // one queued follow-up, not one per call
+    await Promise.all(ticks);
+    minter.stop();
+    expect(minter.task('bk9')?.status).toBe('done');
+  });
+});

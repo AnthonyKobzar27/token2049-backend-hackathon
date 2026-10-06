@@ -89,6 +89,7 @@ export function createReputationMinter(
   const confirmTimeout = opts.confirmTimeoutMs ?? 240_000;
   const busy = new Set<string>();
   let ticking: Promise<void> | undefined;
+  let queued: Promise<void> | undefined;
   let timer: NodeJS.Timeout | undefined;
   let unsubscribe: (() => void) | undefined;
 
@@ -256,7 +257,7 @@ export function createReputationMinter(
         await process(task);
       } catch (err) {
         const attempts = task.attempts + 1;
-        const msg = (err as Error).message ?? String(err);
+        const msg = err instanceof Error ? err.message : String(err);
         const failed = attempts >= maxAttempts;
         save({ ...task, attempts, status: failed ? 'failed' : 'queued', nextAt: now() + Math.min(baseBackoff * 2 ** (attempts - 1), 30 * 60_000), error: msg });
         console.error(`[identity] reputation for booking ${bookingId} failed (attempt ${attempts}${failed ? ', giving up' : ', will retry'}): ${msg}`);
@@ -303,12 +304,22 @@ export function createReputationMinter(
       timer = undefined;
     },
     tick() {
-      // Coalesce: a tick requested while one runs starts right after it.
-      const run = (ticking ?? Promise.resolve()).then(doTick);
-      ticking = run.finally(() => {
-        if (ticking === run) ticking = undefined;
-      });
-      return run;
+      // Coalesce: one tick at a time, and at most one more queued behind it. A failed tick never
+      // poisons the next one (the caller sees its rejection; nothing else holds on to it).
+      if (!ticking) {
+        const run: Promise<void> = doTick().finally(() => {
+          if (ticking === run) ticking = undefined;
+        });
+        ticking = run;
+        return run;
+      }
+      queued ??= ticking
+        .catch(() => {})
+        .then(() => {
+          queued = undefined;
+          return minter.tick();
+        });
+      return queued;
     },
     recordCompletion(input) {
       const task = enqueue(input);
