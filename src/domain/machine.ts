@@ -17,8 +17,12 @@ const BOOKING: Record<BookingStatus, BookingStatus[]> = {
   placed: ['in_progress', 'delivered', 'in_revision', 'completed'],
   handoff: ['placed', 'in_progress', 'delivered', 'in_revision', 'completed'],
   in_progress: ['delivered', 'in_revision', 'completed'],
-  delivered: ['in_revision', 'completed'],
+  delivered: ['in_revision', 'completed', 'verifying', 'rejected'],
   in_revision: ['in_progress', 'delivered', 'completed'],
+  // QA between delivery and acceptance. needs_human goes back to 'delivered' to wait for a person.
+  verifying: ['verified', 'delivered', 'in_revision', 'rejected'],
+  verified: ['completed', 'in_revision', 'rejected'],
+  rejected: [],
   completed: [],
   cancelled: ['refunded'],
   refunded: [],

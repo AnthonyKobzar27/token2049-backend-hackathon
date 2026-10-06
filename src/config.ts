@@ -76,6 +76,19 @@ const schema = z.object({
   SOLANA_OPERATOR_SECRET: optional,
 
   REQUIRE_APPROVAL_FOR_ROUTINE_MESSAGES: bool(false),
+
+  /** QA of delivered work before escrow release. */
+  MODEL_VERIFY: z.string().default('claude-haiku-4-5-20251001'),
+  /** Used instead of MODEL_VERIFY for bookings priced at or above VERIFY_STRONG_MIN_USD. */
+  MODEL_VERIFY_STRONG: z.string().default('claude-opus-5-5'),
+  VERIFY_STRONG_MIN_USD: z.coerce.number().default(250),
+  /** Whole QA run budget; past it the verdict is needs_human. */
+  VERIFY_TIMEOUT_MS: int(8_000),
+  VERIFY_URL_TIMEOUT_MS: int(2_500),
+  /** Release without asking when QA passed and the booking costs at most this. 0 turns it off. */
+  AUTO_RELEASE_MAX_USD: z.coerce.number().default(0),
+  /** Ask the freelancer for the one QA revision without waiting for an approval. */
+  AUTO_QA_REVISION: bool(true),
 });
 
 export type Config = z.infer<typeof schema>;
