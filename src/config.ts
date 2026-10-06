@@ -57,6 +57,51 @@ const schema = z.object({
   MASUMI_NETWORK: z.enum(['Preprod', 'Mainnet']).default('Preprod'),
   MASUMI_AGENT_IDENTIFIER: optional,
   MASUMI_SELLER_VKEY: optional,
+  /** Ed25519 seed (64 hex chars) that signs /provide_input responses. Unset: generated once and kept in the database. */
+  MASUMI_SIGNING_KEY: optional,
+  /** Accept /provide_input without input_schema_hash (pre 2026-03 MIP-003 clients). A wrong hash is always rejected. */
+  MASUMI_LENIENT_SCHEMA_HASH: bool(false),
+  /** Must match the registration: Dynamic sends RequestedFunds with every payment request, Fixed sends none. */
+  MASUMI_PRICING_TYPE: z.enum(['Dynamic', 'Fixed']).default('Dynamic'),
+  /** Asset of the Dynamic job fee: policy id + asset name hex (default test USDM on Preprod); "" or "lovelace" for ADA. */
+  MASUMI_PRICE_UNIT: z.string().default('16a55b2a349361ff88c03788f93e1e966e5d689605d044fef722ddde0014df10745553444d'),
+  /** Base job fee in atomic units (USDM has 6 decimals: 1000000 = 1 USDM). */
+  MASUMI_PRICE_AMOUNT: z.string().regex(/^[1-9]\d{0,18}$/).default('1000000'),
+  /** Adds this percent of the brief's budget_usd to the fee (USDM only, 1 USDM = 1 USD). 0 keeps the flat fee. */
+  MASUMI_FEE_PERCENT: z.coerce.number().min(0).max(100).default(0),
+  /** Ceiling of the quoted fee in atomic units. */
+  MASUMI_PRICE_MAX_AMOUNT: z.string().regex(/^[1-9]\d{0,18}$/).default('25000000'),
+  /** Index of our Cardano source in the registry entry; unset means look it up. */
+  MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).max(24).optional()),
+  /**
+   * Payment deadlines for MIP-003 jobs, in minutes from start (unlock and dispute: after the previous deadline).
+   * The result window covers search and the human check-in; it does not pause while a human answers. Values below
+   * the payment service's minimums are raised to them (result 16, unlock 16, dispute 16, pay at most result - 5).
+   */
+  MASUMI_PAY_WINDOW_MIN: int(20),
+  MASUMI_RESULT_WINDOW_MIN: int(90),
+  MASUMI_UNLOCK_DELAY_MIN: int(16),
+  MASUMI_DISPUTE_DELAY_MIN: int(16),
+
+  /** Sokosumi Coworker worker (Tasks). It runs when both SOKOSUMI_COWORKER_ID and SOKOSUMI_COWORKER_API_KEY are set. */
+  SOKOSUMI_COWORKER_ID: optional,
+  /** The Coworker's coworker_* runtime key (Preprod). Not the Masumi payment service key. */
+  SOKOSUMI_COWORKER_API_KEY: optional,
+  SOKOSUMI_API_URL: z.string().default('https://api.preprod.sokosumi.com'),
+  /** Only take Tasks of this organization; "personal" means the Personal Workspace only. Unset: every Task assigned to the Coworker. */
+  SOKOSUMI_ORGANIZATION_ID: optional,
+  SOKOSUMI_POLL_MS: int(10_000),
+  /** Charge each Task the Masumi job fee through a masumiPayment event (needs MASUMI_* set and a confirmed Dynamic registration). */
+  SOKOSUMI_PAID_TASKS: bool(false),
+  /** Payment deadlines for paid Tasks, in minutes (no human check-in, so shorter than the MIP-003 ones): unlock about 45 min after start. */
+  SOKOSUMI_PAY_WINDOW_MIN: int(15),
+  SOKOSUMI_RESULT_WINDOW_MIN: int(25),
+  SOKOSUMI_UNLOCK_DELAY_MIN: int(16),
+  SOKOSUMI_DISPUTE_DELAY_MIN: int(16),
+  /** How long one HAAS run on a Task may take before the Task fails. */
+  SOKOSUMI_RUN_TIMEOUT_MIN: int(15),
+  /** Contract address of our V2 payment source, for masumiPayment.PaymentSource when the payment service does not return it. */
+  MASUMI_SMART_CONTRACT_ADDRESS: optional,
 
   /** x402 paywall on Cardano. Unset X402_PAY_TO disables it. */
   X402_FACILITATOR_URL: z.string().default('http://localhost:4022'),
@@ -82,13 +127,15 @@ export type Config = z.infer<typeof schema>;
 
 let cached: Config | undefined;
 
-/** Loads ~/.haas/.env (if present) and parses the environment. */
+/** Loads ~/.haas/.env and ./.env.local (if present; variables already set win) and parses the environment. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (env === process.env && cached) return cached;
   if (env === process.env) {
     mkdirSync(HAAS_HOME, { recursive: true });
     const file = join(HAAS_HOME, '.env');
     if (existsSync(file)) process.loadEnvFile(file);
+    // The Sokosumi guide's runtime-key snippet writes SOKOSUMI_COWORKER_API_KEY to ./.env.local (git-ignored).
+    if (existsSync('.env.local')) process.loadEnvFile('.env.local');
   }
   const config = schema.parse(env);
   if (env === process.env) cached = config;

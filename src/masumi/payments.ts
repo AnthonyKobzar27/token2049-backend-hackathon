@@ -1,8 +1,13 @@
-// Client for the Masumi Payment Service (0.29.0 OpenAPI). Requests carry ISO-8601 times, responses carry
+// Client for the Masumi Payment Service (0.29.0 / main OpenAPI). Requests carry ISO-8601 times, responses carry
 // epoch-ms strings; JobPayment uses epoch ms numbers.
+// Dynamic pricing (the TOKEN2049 default): every POST /payment carries RequestedFunds; the registry entry only
+// says {"pricingType":"Dynamic"}. Collection: with AUTO_WITHDRAW_PAYMENTS=true (the service default) the payment
+// service withdraws the escrow to the seller by itself after unlockTime; it has no seller "collect" endpoint.
+// We watch for onChainState Withdrawn and record the confirmed withdrawal transaction.
 import { z } from 'zod';
 import type { Config } from '../config';
 import type { JobPayment, Ms } from '../domain/types';
+import { normalizeUnit, type Amount } from './pricing';
 
 const MIN = 60_000;
 
@@ -24,11 +29,45 @@ export interface PaymentTimes {
   externalDisputeUnlockTime: Ms;
 }
 
-/** pay +30m, result +4h, unlock result+20m, dispute unlock +20m. The API needs result >= now+15m, pay <= result-5m, unlock >= result+15m, dispute >= unlock+15m. */
-export function defaultTimes(now: Ms): PaymentTimes {
-  const submitResultTime = now + 240 * MIN;
-  const unlockTime = submitResultTime + 20 * MIN;
-  return { payByTime: now + 30 * MIN, submitResultTime, unlockTime, externalDisputeUnlockTime: unlockTime + 20 * MIN };
+export interface Windows {
+  payMin: number;
+  resultMin: number;
+  unlockDelayMin: number;
+  disputeDelayMin: number;
+}
+
+export const windowsFromConfig = (
+  c: Pick<Config, 'MASUMI_PAY_WINDOW_MIN' | 'MASUMI_RESULT_WINDOW_MIN' | 'MASUMI_UNLOCK_DELAY_MIN' | 'MASUMI_DISPUTE_DELAY_MIN'>,
+): Windows => ({
+  payMin: c.MASUMI_PAY_WINDOW_MIN,
+  resultMin: c.MASUMI_RESULT_WINDOW_MIN,
+  unlockDelayMin: c.MASUMI_UNLOCK_DELAY_MIN,
+  disputeDelayMin: c.MASUMI_DISPUTE_DELAY_MIN,
+});
+
+/** Floors, one minute above the payment service's own minimums so clock skew between us and it cannot fail a request. */
+export const MIN_WINDOWS: Windows = { payMin: 5, resultMin: 16, unlockDelayMin: 16, disputeDelayMin: 16 };
+
+/**
+ * MIP-003 jobs: pay within 20 min, result 90 min after start (routing plus at least an hour for the human check-in,
+ * whose clock does not pause during awaiting_input), unlock 16 min later. Collection lands about 1 h 50 min after start.
+ */
+export const DEFAULT_WINDOWS: Windows = { payMin: 20, resultMin: 90, unlockDelayMin: 16, disputeDelayMin: 16 };
+
+/**
+ * Deadlines for a new payment, clamped to what the payment service accepts (result >= now+15m, pay <= result-5m,
+ * unlock >= result+15m, dispute >= unlock+15m).
+ */
+export function defaultTimes(now: Ms, w: Windows = DEFAULT_WINDOWS): PaymentTimes {
+  const submitResultTime = now + Math.max(w.resultMin, MIN_WINDOWS.resultMin) * MIN;
+  const payByTime = Math.min(now + Math.max(w.payMin, MIN_WINDOWS.payMin) * MIN, submitResultTime - 5 * MIN);
+  const unlockTime = submitResultTime + Math.max(w.unlockDelayMin, MIN_WINDOWS.unlockDelayMin) * MIN;
+  return {
+    payByTime,
+    submitResultTime,
+    unlockTime,
+    externalDisputeUnlockTime: unlockTime + Math.max(w.disputeDelayMin, MIN_WINDOWS.disputeDelayMin) * MIN,
+  };
 }
 
 export interface PaymentState {
@@ -38,15 +77,36 @@ export interface PaymentState {
   fundsLocked: boolean;
   /** A result hash is recorded or on its way on chain. */
   resultSubmitted: boolean;
+  resultHash: string | null;
+  /** The escrow was paid out to the seller (Withdrawn or DisputedWithdrawn). */
+  withdrawn: boolean;
+  /** Confirmed withdrawal transaction, when known. */
+  collectionTxHash: string | null;
+  errorType: string | null;
+}
+
+export interface CreatePaymentInput {
+  inputHash: string;
+  identifierFromPurchaser: string;
+  /** Required for Dynamic pricing, ignored for Fixed. */
+  amounts?: Amount[];
+  metadata?: string;
+  /** Overrides the configured deadlines for this payment (e.g. Sokosumi Tasks, which have no check-in). */
+  windows?: Partial<Windows>;
 }
 
 export interface PaymentClient {
-  createPayment(input: { inputHash: string; identifierFromPurchaser: string }): Promise<JobPayment>;
+  createPayment(input: CreatePaymentInput): Promise<JobPayment>;
   getPayment(blockchainIdentifier: string): Promise<PaymentState>;
   submitResult(blockchainIdentifier: string, submitResultHash: string): Promise<void>;
 }
 
 const msString = z.union([z.string(), z.number()]).transform((v) => Number(v));
+const tx = z.looseObject({
+  txHash: z.string().nullish(),
+  status: z.string().nullish(),
+  newOnChainState: z.string().nullish(),
+});
 const payment = z.looseObject({
   blockchainIdentifier: z.string(),
   payByTime: msString.nullish(),
@@ -55,20 +115,43 @@ const payment = z.looseObject({
   externalDisputeUnlockTime: msString.nullish(),
   onChainState: z.string().nullish(),
   resultHash: z.string().nullish(),
-  NextAction: z.looseObject({ requestedAction: z.string() }).nullish(),
+  NextAction: z.looseObject({ requestedAction: z.string(), errorType: z.string().nullish(), resultHash: z.string().nullish() }).nullish(),
   SmartContractWallet: z.looseObject({ walletVkey: z.string() }).nullish(),
+  PaymentSource: z.looseObject({ paymentSourceType: z.string().nullish(), smartContractAddress: z.string().nullish() }).nullish(),
+  RequestedFunds: z.array(z.looseObject({ amount: z.string(), unit: z.string() })).nullish(),
+  CurrentTransaction: tx.nullish(),
+  TransactionHistory: z.array(tx).nullish(),
 });
+type PaymentDto = z.infer<typeof payment>;
 const envelope = z.looseObject({ data: payment });
 
 const agentEntry = z.looseObject({
   data: z.looseObject({
     supportedPaymentSources: z
-      .array(z.looseObject({ chain: z.string().optional(), network: z.string().optional(), paymentSourceType: z.string().nullish() }))
+      .array(
+        z.looseObject({
+          chain: z.string().optional(),
+          network: z.string().optional(),
+          paymentSourceType: z.string().nullish(),
+          pricing: z.looseObject({ pricingType: z.string() }).nullish(),
+        }),
+      )
       .nullish(),
   }),
 });
 
+const WITHDRAWN = new Set(['Withdrawn', 'DisputedWithdrawn']);
+
+/** The confirmed transaction that moved the escrow to the seller, from the current one or the history. */
+export function collectionTx(p: PaymentDto): string | null {
+  if (!p.onChainState || !WITHDRAWN.has(p.onChainState)) return null;
+  const all = [p.CurrentTransaction, ...(p.TransactionHistory ?? [])].filter((t): t is NonNullable<typeof t> => Boolean(t));
+  const hit = all.find((t) => t.status === 'Confirmed' && t.newOnChainState && WITHDRAWN.has(t.newOnChainState) && t.txHash);
+  return hit?.txHash ?? null;
+}
+
 type Fetch = typeof fetch;
+type Hints = { paymentSourceType?: string; supportedPaymentSourceIndex?: number; pricingType?: string };
 
 export function createPaymentClient(config: Config, opts: { fetch?: Fetch; now?: () => Ms } = {}): PaymentClient {
   const base = config.MASUMI_API_URL.replace(/\/+$/, '');
@@ -96,40 +179,60 @@ export function createPaymentClient(config: Config, opts: { fetch?: Fetch; now?:
     }
   }
 
-  // V2 payment sources need paymentSourceType and the index of our source in the agent's supportedPaymentSources.
-  // Read from the registry entry once; on failure send neither (V1 behaviour) and try again next time.
-  let source: Promise<{ paymentSourceType: string; supportedPaymentSourceIndex: number } | undefined> | undefined;
+  // V2 payment sources need paymentSourceType and the index of our source in the agent's supportedPaymentSources;
+  // that source's pricing decides whether RequestedFunds is sent. Read from the registry entry once; on failure
+  // fall back to the config and try again next time.
+  let source: Promise<Hints | undefined> | undefined;
   const lookupSource = () =>
-    (source ??= (async () => {
+    (source ??= (async (): Promise<Hints | undefined> => {
       try {
         const q = new URLSearchParams({ agentIdentifier: config.MASUMI_AGENT_IDENTIFIER ?? '', network: config.MASUMI_NETWORK });
         const r = agentEntry.parse(await call('GET', `/registry/agent-identifier?${q}`));
         const list = r.data.supportedPaymentSources ?? [];
-        const i = list.findIndex((s) => s.chain === 'Cardano' && s.network === config.MASUMI_NETWORK);
-        const t = i >= 0 ? list[i]?.paymentSourceType : undefined;
-        return t === 'Web3CardanoV2' ? { paymentSourceType: t, supportedPaymentSourceIndex: i } : undefined;
+        const i = config.MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX ?? list.findIndex((s) => s.chain === 'Cardano' && s.network === config.MASUMI_NETWORK);
+        const s = i >= 0 ? list[i] : undefined;
+        if (!s) return {};
+        const pricingType = s.pricing?.pricingType;
+        return s.paymentSourceType === 'Web3CardanoV2' ? { paymentSourceType: s.paymentSourceType, supportedPaymentSourceIndex: i, pricingType } : { pricingType };
       } catch (err) {
         source = undefined;
-        console.error('[masumi] registry lookup failed, creating payment without source hints:', (err as Error).message);
+        console.error('[masumi] registry lookup failed, using the configured source hints:', (err as Error).message);
         return undefined;
       }
     })());
 
-  const toState = (p: z.infer<typeof payment>): PaymentState => {
+  const toState = (p: PaymentDto): PaymentState => {
     const nextAction = p.NextAction?.requestedAction ?? 'None';
+    const resultHash = p.resultHash || p.NextAction?.resultHash || null;
+    const withdrawn = WITHDRAWN.has(p.onChainState ?? '');
     return {
       onChainState: p.onChainState ?? null,
       nextAction,
       fundsLocked: p.onChainState === 'FundsLocked',
       resultSubmitted:
-        p.onChainState === 'ResultSubmitted' || Boolean(p.resultHash) || nextAction === 'SubmitResultRequested' || nextAction === 'SubmitResultInitiated',
+        p.onChainState === 'ResultSubmitted' ||
+        withdrawn ||
+        Boolean(resultHash) ||
+        nextAction === 'SubmitResultRequested' ||
+        nextAction === 'SubmitResultInitiated',
+      resultHash,
+      withdrawn,
+      collectionTxHash: collectionTx(p),
+      errorType: p.NextAction?.errorType ?? null,
     };
   };
 
   return {
-    async createPayment({ inputHash, identifierFromPurchaser }) {
-      const t = defaultTimes(now());
-      const hints = await lookupSource();
+    async createPayment({ inputHash, identifierFromPurchaser, amounts, metadata, windows }) {
+      const t = defaultTimes(now(), { ...windowsFromConfig(config), ...windows });
+      const fallback: Hints =
+        config.MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX !== undefined
+          ? { paymentSourceType: 'Web3CardanoV2', supportedPaymentSourceIndex: config.MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX }
+          : {};
+      const hints = (await lookupSource()) ?? fallback;
+      const dynamic = (hints.pricingType ?? config.MASUMI_PRICING_TYPE) === 'Dynamic';
+      if (dynamic && !amounts?.length) throw new MasumiPaymentError('Dynamic pricing needs an amount for every payment request');
+      const requested = dynamic ? amounts!.map((a) => ({ amount: a.amount, unit: normalizeUnit(a.unit) })) : undefined;
       const iso = (ms: Ms) => new Date(ms).toISOString();
       const res = envelope.safeParse(
         await call('POST', '/payment', {
@@ -141,15 +244,21 @@ export function createPaymentClient(config: Config, opts: { fetch?: Fetch; now?:
           submitResultTime: iso(t.submitResultTime),
           unlockTime: iso(t.unlockTime),
           externalDisputeUnlockTime: iso(t.externalDisputeUnlockTime),
-          ...hints,
+          ...(hints.paymentSourceType ? { paymentSourceType: hints.paymentSourceType } : {}),
+          ...(hints.supportedPaymentSourceIndex !== undefined ? { supportedPaymentSourceIndex: hints.supportedPaymentSourceIndex } : {}),
+          ...(requested ? { RequestedFunds: requested } : {}),
+          ...(metadata ? { metadata } : {}),
         }),
       );
       if (!res.success) throw new MasumiPaymentError('POST /payment: unexpected response shape');
       const p = res.data.data;
-      return {
+      const funds = p.RequestedFunds?.map((f) => ({ amount: f.amount, unit: f.unit })) ?? requested;
+      const sourceType = p.PaymentSource?.paymentSourceType ?? hints.paymentSourceType;
+      const out: JobPayment = {
         blockchainIdentifier: p.blockchainIdentifier,
         agentIdentifier: config.MASUMI_AGENT_IDENTIFIER ?? '',
-        sellerVKey: config.MASUMI_SELLER_VKEY ?? p.SmartContractWallet?.walletVkey ?? '',
+        // The signed terms bind the selling wallet the service used; prefer it over the configured value.
+        sellerVKey: p.SmartContractWallet?.walletVkey ?? config.MASUMI_SELLER_VKEY ?? '',
         identifierFromPurchaser,
         inputHash,
         payByTime: p.payByTime ?? t.payByTime,
@@ -157,11 +266,16 @@ export function createPaymentClient(config: Config, opts: { fetch?: Fetch; now?:
         unlockTime: p.unlockTime ?? t.unlockTime,
         externalDisputeUnlockTime: p.externalDisputeUnlockTime ?? t.externalDisputeUnlockTime,
       };
+      if (funds?.length) out.amounts = funds;
+      if (sourceType) out.paymentSourceType = sourceType;
+      if (hints.supportedPaymentSourceIndex !== undefined) out.supportedPaymentSourceIndex = hints.supportedPaymentSourceIndex;
+      if (p.PaymentSource?.smartContractAddress) out.smartContractAddress = p.PaymentSource.smartContractAddress;
+      return out;
     },
 
     async getPayment(blockchainIdentifier) {
       const res = envelope.safeParse(
-        await call('POST', '/payment/resolve-blockchain-identifier', { blockchainIdentifier, network: config.MASUMI_NETWORK }),
+        await call('POST', '/payment/resolve-blockchain-identifier', { blockchainIdentifier, network: config.MASUMI_NETWORK, includeHistory: 'true' }),
       );
       if (!res.success) throw new MasumiPaymentError('resolve-blockchain-identifier: unexpected response shape');
       return toState(res.data.data);
