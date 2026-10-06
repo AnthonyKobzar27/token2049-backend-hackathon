@@ -34,6 +34,8 @@ export function createDelegator(deps: { config: Config; bus: EventBus; classifie
   return {
     async tryAi(job) {
       if (config.AI_DELEGATION === 'off') return { result: null, reason: 'AI delegation is off' };
+      // Nothing to hire from: skip the classifier so human routing starts at once.
+      if (!config.AI_AGENT_URL && !config.MASUMI_REGISTRY_URL) return { result: null, reason: 'no AI agent configured' };
       const say = (message: string) => bus.emit({ type: 'job.progress', jobId: job.id, message });
       const ctrl = new AbortController();
       const budget = setTimeout(() => ctrl.abort(new Error(`AI time budget of ${config.AI_TIME_BUDGET_MS} ms used up`)), config.AI_TIME_BUDGET_MS);

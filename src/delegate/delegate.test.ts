@@ -100,11 +100,12 @@ describe('AI-first delegation in the job lifecycle', () => {
     expect(progress()).toContain('The AI agent ran out of time; finding a human instead…');
   });
 
-  it('falls through when no agent is configured, and AI_DELEGATION=ai forces the attempt', async () => {
+  it('skips the AI step when no agent is configured, and AI_DELEGATION=ai forces the attempt', async () => {
     const none = setup({});
     const j1 = none.jobs.startJob({ brief: digital, client: 'local' });
     await settled(none.store, j1.id, 'awaiting_input');
-    expect(none.progress()).toContain('No AI agent is available for this; finding a human instead…');
+    expect(none.store.getJob(j1.id)?.path).toBe('human');
+    expect(none.progress().some((m) => m.includes('AI agent'))).toBe(false);
 
     const seller = track(await fakeSeller());
     const forced = setup({ AI_AGENT_URL: seller.url, AI_DELEGATION: 'ai' });
