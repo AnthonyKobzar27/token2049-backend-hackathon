@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { testConfig } from '../config';
+import { loadConfig, testConfig } from '../config';
 import { CARDANO_FACILITATORS, canonicalCardanoUnit, explorerUrl, MASUMI_USDM_PREPROD, normalizeNetwork, paymentKey, resolveAccepts } from './x402-networks';
 
 const SOL_DEVNET = 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1';
@@ -42,6 +42,11 @@ describe('x402 networks', () => {
     const [m] = resolveAccepts(testConfig({ X402_PAY_TO: 'addr1x', X402_NETWORK: 'cardano:mainnet', X402_FACILITATOR_FALLBACK_URL: 'off' })).accepts;
     expect(m!.facilitators).toEqual([CARDANO_FACILITATORS['cardano:mainnet']]);
     expect(m!.asset).toBe('c48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad.0014df105553444d');
+  });
+
+  it('treats an empty X402_FACILITATOR_URL (as in .env.example) as the hosted default', () => {
+    const cfg = loadConfig({ X402_FACILITATOR_URL: '', X402_PAY_TO: 'addr_test1x', X402_ASSET: 'auto', DB_PATH: ':memory:' });
+    expect(resolveAccepts(cfg).accepts[0]!.facilitators[0]).toBe(CARDANO_FACILITATORS['cardano:preprod']);
   });
 
   it('prices the stablecoin from X402_PRICE_USD and honours a USDM unit override', () => {

@@ -1,6 +1,7 @@
 # x402 facilitator for Cardano Preprod
 
-There is no hosted Cardano facilitator, so HAAS runs its own. It verifies the payer's signed
+HAAS uses the Cardano Foundation's hosted facilitator by default and falls back to this one when
+the hosted one is unreachable at startup (see `docs/X402.md`). It verifies the payer's signed
 transaction, broadcasts it, and waits for the confirmation policy. It holds no keys and pays no
 fees; the payer funds the transaction. Based on `cardano-foundation/x402-cardano-demo/facilitator`
 (demo pins `@x402/*` 2.26.0; this folder pins 2.28.0, the version the HAAS repo uses, same API).
@@ -16,13 +17,13 @@ curl localhost:4022/supported         # must list scheme "exact" on "cardano:pre
 curl localhost:4022/health
 ```
 
-Then in `~/.haas/.env` for HAAS:
+HAAS tries it as the fallback (`X402_FACILITATOR_FALLBACK_URL`, default `http://localhost:4022`).
+To use it as the only Cardano facilitator, in `~/.haas/.env` for HAAS:
 
 ```
 X402_PAY_TO=<preprod address that receives the payments, addr_test1...>
 X402_FACILITATOR_URL=http://localhost:4022
 X402_NETWORK=cardano:preprod
-X402_PRICE_LOVELACE=2000000
 ```
 
 The HAAS server asks `/supported` the first time someone calls `POST /x402/route`; if the
@@ -46,5 +47,5 @@ facilitator is down that call fails with 502 (no 402 challenge can be built with
 - Settlement state is in memory: restarting while a payment is pending loses the retry guard.
 - The payer needs preprod tADA from https://docs.cardano.org/cardano-testnets/tools/faucet/ ; the
   facilitator needs no funds.
-- Test with `pnpm spike:x402` from the repo root (needs `X402_CLIENT_MNEMONIC` and the same
+- Test with `pnpm spike:x402 cardano` from the repo root (needs `X402_CLIENT_MNEMONIC` and the same
   `BLOCKFROST_PROJECT_ID` in `~/.haas/.env`).
