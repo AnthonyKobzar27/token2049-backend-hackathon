@@ -159,9 +159,33 @@ export interface JobPayment {
   resultSubmittedAt?: Ms;
 }
 
+/** Who did the work: a Masumi AI agent we hired, or a human found by the router. */
+export type JobPath = 'ai' | 'human';
+
+/** The Masumi AI agent that delivered a job on the AI path. */
+export interface AiAgentWork {
+  name: string;
+  agentIdentifier?: string;
+  apiBaseUrl: string;
+  /** The job id on the hired agent's MIP-003 API. */
+  jobId: string;
+  identifierFromPurchaser: string;
+  blockchainIdentifier?: string;
+  /** Funds were locked through the buyer payment service (false in free/demo mode). */
+  paid: boolean;
+  /** The MIP-004 result hash matched; undefined when no hash was available to check. */
+  verified?: boolean;
+  ms: number;
+}
+
 export interface JobResult {
-  outcome: 'booked' | 'handoff' | 'no_booking';
+  outcome: 'booked' | 'handoff' | 'no_booking' | 'delivered';
   summary: string;
+  path?: JobPath;
+  /** AI path: the hired agent and its job. */
+  agent?: AiAgentWork;
+  /** AI path: the agent's full output. */
+  output?: string;
   freelancer?: Pick<FreelancerProfile, 'id' | 'platform' | 'name' | 'url' | 'headline'>;
   priceUsd?: number;
   bookingId?: string;
@@ -182,6 +206,8 @@ export interface Job {
   bookingId?: string;
   payment?: JobPayment;
   result?: JobResult;
+  /** Set once the AI-or-human decision is made. */
+  path?: JobPath;
   error?: string;
   createdAt: Ms;
   updatedAt: Ms;

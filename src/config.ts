@@ -76,6 +76,30 @@ const schema = z.object({
   SOLANA_OPERATOR_SECRET: optional,
 
   REQUIRE_APPROVAL_FOR_ROUTINE_MESSAGES: bool(false),
+
+  /** AI-first delegation: auto (classify), ai (always try an agent first), human (skip agents), off. */
+  AI_DELEGATION: z.enum(['auto', 'ai', 'human', 'off']).default('auto'),
+  /** Hard ceiling on the whole AI attempt before falling through to the human router. */
+  AI_TIME_BUDGET_MS: int(60_000),
+  AI_CLASSIFY_TIMEOUT_MS: int(1_800),
+  /** Pinned agent (MIP-003 base URL), so the demo never depends on registry search. */
+  AI_AGENT_URL: optional,
+  AI_AGENT_IDENTIFIER: optional,
+  AI_AGENT_NAME: optional,
+  /** Comma-separated agentIdentifiers (or base URLs) allowed from registry search; unset allows any. */
+  AI_AGENT_ALLOWLIST: optional,
+  /** Registry search filters. */
+  AI_AGENT_TAGS: optional,
+  AI_AGENT_CAPABILITY: optional,
+  /** input_data key that receives the task text; unset guesses from the agent's input_schema. */
+  AI_AGENT_INPUT_KEY: optional,
+  /** Skip the purchase lock even when the agent asks for payment (demo only). */
+  AI_AGENT_FREE: bool(false),
+  /** Masumi Registry Service, for agent search. */
+  MASUMI_REGISTRY_URL: optional,
+  MASUMI_REGISTRY_TOKEN: optional,
+  /** Buyer side of the payment service; defaults to MASUMI_API_KEY. */
+  MASUMI_BUYER_API_KEY: optional,
 });
 
 export type Config = z.infer<typeof schema>;
