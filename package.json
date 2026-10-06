@@ -12,7 +12,10 @@
     "spike:x402": "tsx scripts/x402-spike.ts",
     "spike:solana": "tsx scripts/solana-spike.ts",
     "smoke:browser": "tsx scripts/browser-smoke.ts",
-    "register:agent": "tsx scripts/register-agent.ts"
+    "register:agent": "tsx scripts/register-agent.ts",
+    "identity:wallet": "tsx scripts/mint-credential.ts --new-wallet",
+    "identity:mint": "tsx scripts/mint-credential.ts",
+    "identity:demo": "tsx scripts/reputation-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
