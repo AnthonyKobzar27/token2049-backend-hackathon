@@ -68,7 +68,7 @@ async function main() {
 
   // 3. Accept the credential offer.
   const grant = await nextNote(w, '/exn/ipex/grant');
-  const grantExn = await w.exchanges().get(grant.a.d);
+  const grantExn = await w.exchanges().get(grant.a.d!);
   console.log(`grant from ${grantExn.exn.i}; schema base for the Veridian wallet (a.oobiUrl): ${grantExn.exn.a?.oobiUrl ?? 'none'}`);
   const [admit, sigs, end] = await (w as any).ipex().admit({ senderName: NAME, recipient: issuerAid, grantSaid: grant.a.d, message: '', datetime: dt() });
   await waitOp(w, await (w as any).ipex().submitAdmit(NAME, admit, sigs, end, [issuerAid]), 30_000);
