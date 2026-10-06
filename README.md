@@ -32,29 +32,38 @@ Nothing is booked until a person agrees.
 ## How it works
 
 ```
-Sokosumi / any Masumi agent ─┐
-Telegram bot                 ├─> HAAS agent API (MIP-003)
-x402 client (Cardano/Solana) ─┘     start_job · status · provide_input
-                                        │
-                              Scope -> "Can an AI agent do it?"
-                                 │ yes                │ no, or the AI attempt fails / times out
-                     Hire a Masumi AI agent           │
-                     (MIP-003, paid on Cardano)       │
-                                                      │
-                     Router: search -> normalise -> filter -> rank -> explain
-                                                      │
-     ┌────────────────┬─────────────────┼──────────────────────────┬───────────────────┐
- Freelancer.com    Upwork          RentAHuman        Fiverr · PeoplePerHour · Guru   Prolific
-  official API   GraphQL API      official API     (· Upwork) read in the operator's  participant pool:
-                                                     own browser                     draft study, approve to publish
+Masumi agent (MIP-003) · Sokosumi Coworker · x402 (USDM on Cardano / USDC on Solana) · Telegram
+                                     │  job fee: Masumi escrow or x402
+                                     ▼
+ 1  Scope the brief ............... task, skills, budget, place, day/time
+ 2  Can an AI agent do it? ........ yes: hire a Masumi AI agent ─────────────────────────┐
+                                     │ no (or the AI attempt fails / times out)          │
+ 3  Open router ................... Freelancer.com · RentAHuman · Upwork · Prolific ·    │
+                                     Fiverr/PeoplePerHour/Guru (browser) · bounty board  │
+                                     + boost and "verified" label (Cardano / Veridian)   │
+ 4  Check-in (awaiting_input) ..... you pick; provide_input with input_schema_hash,      │
+                                     signed reply                                        │
+ 5  Lock the budget ............... Solana escrow program (payee, deadline) + approval   │
+ 6  The human does it ............. booking or bounty: claim -> submit                   │
+ 7  Verify ........................ rule checks + AI QA: pass / one revision / reject    │
+ 8  Release or refund ............. release bound to the result hash, worker paid;       │
+                                     rejection or deadline -> automatic refund           │
+ 9  Reputation .................... CIP-68 update + receipt NFT (Cardano); Veridian      │
+10  Result to the caller .......... /status; same hash sent to Masumi submit-result ◄────┘
 ```
 
-- **AI first.** A fast model (with a keyword fallback) decides whether the work is digital. If it is, HAAS hires another Masumi agent: it starts a MIP-003 job, locks the fee through the Masumi payment service (skipped for free/demo agents), polls for the result and checks its MIP-004 hash, all within a time budget (default 60s). Anything that needs a person, or any AI attempt that fails or runs out of time, goes to the human router below. The job result records `path: "ai"` or `"human"`.
-- **Front doors.** A standard Masumi agent API (MIP-003), a Telegram bot for people, and an x402 pay-per-request endpoint for agents that don't speak Masumi.
-- **Sources.** Official APIs where they exist. Platforms without one are read in the operator's own logged-in Chrome at human pace; if a site asks for a human check, HAAS stops and asks the operator. It does not solve challenges or disguise itself.
-- **Payments.**
-  - *Job fee*: through the Masumi Payment Service on Cardano, or x402 in stablecoin (USDM on Cardano Preprod or USDC on Solana devnet; one setting picks the chains, see [docs/X402.md](docs/X402.md)).
-  - *Booking budget on Solana*: the hirer locks the budget in USDC in an on-chain escrow per booking, released when the delivery is verified and refunded on cancellation or timeout. See [Booking budget on Solana](#booking-budget-on-solana).
+1. **Scope.** The brief comes in through MIP-003 `start_job` (paid through the Masumi payment service, priced in USDM), the Sokosumi Coworker worker, the x402 endpoint (USDM on Cardano or USDC on Solana; `X402_NETWORK` picks) or Telegram. Day and time ("Saturday 2-5pm"), place and on-site need are read from the text.
+2. **AI first.** A fast model (keyword fallback without a key) decides whether the work is digital. If it is, HAAS hires another Masumi agent: a MIP-003 job, the fee locked through `/purchase` (skipped for free agents), the result checked against its MIP-004 hash, all inside `AI_TIME_BUDGET_MS`. Anything that needs a person, or any AI attempt that fails or runs out of time, goes to the human router. The result records `path: "ai"` or `"human"`.
+3. **Open router.** Every enabled source is searched within `SEARCH_BUDGET_MS` (late sources fill the cache for next time; `DEMO_MODE` pins a warm cache for ~2 s answers). Profiles are scored per task type on fit, price, rating, availability, day/time and distance. Workers holding a HAAS credential (CIP-68 on Cardano and/or a Veridian KERI credential) get a small, capped boost and a `verified` label (`verified`, `verified_by`, `jobs_on_chain` in the shortlist).
+4. **Check-in.** The job waits in `awaiting_input` with the shortlist as the `input_schema`. `provide_input` must carry `input_schema_hash` (sha256 of the canonical schema); the response is signed with Ed25519 (`GET /signing_key`).
+5. **Escrow.** The booking budget is locked per booking in the `haas-escrow` Solana program (Solana Pay QR for the hirer), with a payee and an on-chain deadline. The payee is the worker's own Solana wallet when they publish one (bounty board in `direct` mode), otherwise the operator, who pays the platform. Nothing is booked until the deposit lands and the `book` approval is given.
+6. **The human does it.** Platform bookings are placed or handed off; bounty-board tasks go to nearby verified workers, who claim and submit structured results on a mobile page or in Telegram.
+7. **Verify.** Every delivery goes through QA: the bounty's own result check, then rule checks and a Claude rubric. Pass: you approve the release (or it is automatic under `AUTO_RELEASE_MAX_USD`). Fail: one revision request; a second failure rejects the work.
+8. **Release or refund.** The release carries the QA result hash on chain and pays the payee; the bounty worker is paid once. A rejection, a cancellation or a passed escrow deadline refunds the hirer automatically, with no payout.
+9. **Reputation.** A completed, verified booking updates the worker's CIP-68 credential datum on Cardano and mints a receipt NFT linking the job, the result hash and the payment. For a broadcast bounty the worker who actually did it gets the credit.
+10. **Result.** `/status` returns the result: for a bounty, the structured work (e.g. "Booked: Thursday 3pm, ref 88213") plus `verifiedResult { hash, payload }`. For a paid Masumi job the watcher submits that same hash with `submit-result`, so Masumi, the Solana release and the reputation receipt all reference one result.
+
+Settlement is chain-pluggable: the job fee on Cardano (Masumi, or x402 in USDM) or Solana (x402 in USDC); the booking budget on Solana.
 
 | Source | How | Credentials | Booking |
 |---|---|---|---|
@@ -101,6 +110,8 @@ pnpm seed:workers         # registers the demo team in ~/.haas/haas.db for `pnpm
 ## Verified workers on Cardano
 
 Every worker HAAS books can hold a **"HAAS Verified Worker" credential**: a CIP-68 token pair on Cardano Preprod. Each completed, verified, paid job updates the credential's on-chain record (jobs completed, average rating, total earned) and mints a job receipt NFT. The receipt links the Masumi job id, the hash of the verified result and the payment transaction. The router gives verified workers a small, capped boost ("on-chain verified, 7 jobs completed on HAAS"). `GET /workers/:id/reputation` returns the asset ids and Cardanoscan links. Try `pnpm identity:demo`; the details are in [docs/IDENTITY.md](docs/IDENTITY.md).
+
+Workers can also hold a **Veridian** (KERI ACDC) "HAAS Verified Worker" credential, issued to their Veridian wallet through `POST /veridian/onboarding` and checked by HAAS against KERIA. A valid one counts as verified in the router too (`verified_by: ["veridian"]`). It needs a KERIA agent (`infra/veridian`); see [docs/VERIDIAN.md](docs/VERIDIAN.md) and `pnpm veridian:demo`.
 
 ## Honest limits
 
@@ -189,5 +200,6 @@ The deadline is the brief's delivery window (or `ESCROW_DELIVERY_DAYS`) plus `ES
 | `src/approvals/` | Approval gate and autonomy policy |
 | `src/payments/` | Solana escrow (program client, Solana Pay endpoint, vault fallback) and the x402 paywall |
 | `programs/haas-escrow/` | The on-chain escrow program (Anchor) and its IDL |
-| `src/identity/` | Worker credential and on-chain reputation on Cardano (CIP-68), see [docs/IDENTITY.md](docs/IDENTITY.md) |
+| `src/identity/` | Worker credential and on-chain reputation on Cardano (CIP-68), see [docs/IDENTITY.md](docs/IDENTITY.md); Veridian KERI credentials in `src/identity/veridian/` ([docs/VERIDIAN.md](docs/VERIDIAN.md)) |
+| `src/e2e/` | End-to-end tests of the whole pitch flow with loopback fakes |
 | `src/domain/` | Shared types and module contracts |
