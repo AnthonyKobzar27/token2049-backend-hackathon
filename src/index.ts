@@ -63,7 +63,7 @@ const poller = createPoller({
 const server = app.listen(config.PORT, () => {
   console.log(`[haas] listening on ${config.PUBLIC_URL} (port ${config.PORT})`);
   console.log(`[haas] sources: ${registry.enabled().map((s) => s.name).join(', ') || 'none enabled'}`);
-  console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO ? 'on' : 'off'}`);
+  console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO || config.X402_SOLANA_PAY_TO ? 'on' : 'off'}`);
 });
 masumi.start();
 poller.start();

@@ -68,7 +68,7 @@ export function createJobService(deps: JobDeps): JobService {
   const routeInBackground = (jobId: string) => void route(jobId);
 
   function complete(job: Job, result: JobResult): Job {
-    return move(job.id, 'completed', { result });
+    return move(job.id, 'completed', { result: job.settlement ? { ...result, settlement: job.settlement } : result });
   }
 
   function candidateFor(job: Job, profileId: string): Candidate | undefined {
