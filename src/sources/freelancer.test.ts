@@ -26,10 +26,9 @@ describe('freelancer normaliser', () => {
     }
   });
 
-  it('converts non-USD rates and records the original', () => {
+  it('takes the hourly rate as USD whatever the account currency', () => {
     const cad = profiles.find((p) => p.platformId === '16396919')!;
-    expect(cad.pricing[0]!.original).toEqual({ amount: 65, currency: 'CAD' });
-    expect(cad.pricing[0]!.amountUsd).toBeCloseTo(65 * 0.700822, 1);
+    expect(cad.pricing[0]).toEqual({ kind: 'hourly', amountUsd: 65 });
     const usd = profiles.find((p) => p.platformId === '23830177')!;
     expect(usd.pricing[0]).toEqual({ kind: 'hourly', amountUsd: 25 });
   });

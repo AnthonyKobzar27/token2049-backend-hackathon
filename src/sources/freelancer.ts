@@ -14,7 +14,7 @@ import type {
   PlatformMessage,
   Pricing,
 } from '../domain/types';
-import { findCountry, HttpError, keywords, requestJson, round2, toUsd, type Query } from './http';
+import { findCountry, HttpError, keywords, requestJson, round2, type Query } from './http';
 
 const PROD = 'https://www.freelancer.com/api';
 const SANDBOX = 'https://www.freelancer-sandbox.com/api';
@@ -83,16 +83,10 @@ export function normaliseUser(u: RawUser, fetchedAt: Ms = Date.now()): Freelance
   const headline = u.tagline?.trim() || (description ? firstSentence(description) : '') || u.company?.trim() || '';
 
   const pricing: Pricing[] = [];
+  // hourly_rate is published in USD whatever the account's primary_currency is:
+  // INR and USD accounts show the same 15-50 range, so converting would be wrong.
   if (u.hourly_rate && u.hourly_rate > 0) {
-    const code = (u.primary_currency?.code ?? 'USD').toUpperCase();
-    const usd = toUsd(u.hourly_rate, code, u.primary_currency?.exchange_rate);
-    if (usd !== undefined) {
-      pricing.push({
-        kind: 'hourly',
-        amountUsd: usd,
-        ...(code !== 'USD' ? { original: { amount: u.hourly_rate, currency: code } } : {}),
-      });
-    }
+    pricing.push({ kind: 'hourly', amountUsd: u.hourly_rate });
   }
 
   const rep = u.reputation?.entire_history;
