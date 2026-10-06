@@ -32,6 +32,14 @@ describe('createEscrowProvider', () => {
     const p = createEscrowProvider({ store, config: testConfig({ ESCROW_PROVIDER: 'solana', SOLANA_OPERATOR_SECRET: secret }) });
     expect(p).toMatchObject({ name: 'solana', currency: 'USDC' });
   });
+  it('builds the on-chain program provider for solana-program, the vault for solana-vault', () => {
+    const secret = bs58.encode(Keypair.generate().secretKey);
+    const prog = createEscrowProvider({ store, config: testConfig({ ESCROW_PROVIDER: 'solana-program', SOLANA_OPERATOR_SECRET: secret }) });
+    expect(prog.name).toBe('solana-program');
+    expect(typeof prog.buildDepositTransaction).toBe('function');
+    const vault = createEscrowProvider({ store, config: testConfig({ ESCROW_PROVIDER: 'solana-vault', SOLANA_OPERATOR_SECRET: secret }) });
+    expect(vault.buildDepositTransaction).toBeUndefined();
+  });
 });
 
 describe('derivation', () => {
