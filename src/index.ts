@@ -92,7 +92,11 @@ const poller = createPoller({
   jobs: () => jobs.tick(),
   bookings: () => bookings.tick(),
   liaison: () => liaison.tick(),
-  bounties: () => bounty.tick(),
+  bounties: async () => {
+    // Workers registered while running (pnpm seed:workers) get their identity wallet too.
+    if (identity) bindBountyWallets(bounty.board, identity.registry);
+    await bounty.tick();
+  },
 });
 // Bounty state changes (claim, submit, expiry) reach the booking at once instead of on the next poll.
 let bountyKick: ReturnType<typeof setTimeout> | undefined;
