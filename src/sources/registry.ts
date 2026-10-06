@@ -39,14 +39,15 @@ export function createRegistry(deps: { sources: FreelancerSource[]; store: Store
       return { profiles: fresh, status: status({ ok: true, cached: true, count: fresh.length }) };
     }
 
+    const timeoutMs = Math.min(config.SOURCE_TIMEOUT_MS, source.timeoutMs && source.timeoutMs > 0 ? source.timeoutMs : Infinity);
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          reject(new Error(`timed out after ${config.SOURCE_TIMEOUT_MS} ms`));
+          reject(new Error(`timed out after ${timeoutMs} ms`));
           controller.abort();
-        }, config.SOURCE_TIMEOUT_MS);
+        }, timeoutMs);
       });
       const found = await Promise.race([source.search(brief, { limit, signal: controller.signal }), timeout]);
       const profiles = found.slice(0, limit);

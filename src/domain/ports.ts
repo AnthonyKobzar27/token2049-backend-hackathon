@@ -99,7 +99,10 @@ export interface FreelancerSource {
   /** Unique, e.g. "freelancer", "fiverr". */
   readonly name: string;
   readonly platform: Platform;
-  readonly kind: 'api' | 'browser' | 'fixture';
+  /** 'pool': a participant pool that returns one synthetic candidate for the whole pool. */
+  readonly kind: 'api' | 'browser' | 'fixture' | 'pool';
+  /** Own search timeout in ms; the registry uses the lower of this and SOURCE_TIMEOUT_MS. */
+  readonly timeoutMs?: number;
   /** False when credentials or prerequisites are missing; the registry then skips it. */
   isEnabled(): boolean;
 

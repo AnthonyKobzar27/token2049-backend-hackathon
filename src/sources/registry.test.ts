@@ -89,6 +89,17 @@ describe('registry', () => {
     expect(aborted).toBe(true);
   });
 
+  it('uses a source timeout lower than the global one, without slowing the others', async () => {
+    const slow: FreelancerSource = { ...source('slow', () => new Promise(() => {})), timeoutMs: 20 };
+    const fast = source('fast', async () => [prof('a', 'fast')]);
+    const reg = createRegistry({ sources: [slow, fast], store: memStore().store, bus: createEventBus(), config: testConfig({ SOURCE_TIMEOUT_MS: 60_000 }) });
+    const started = Date.now();
+    const r = await reg.searchAll(brief, { limitPerSource: 5 });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(r.sources.find((s) => s.source === 'slow')!.error).toMatch(/timed out after 20 ms/);
+    expect(r.profiles.map((p) => p.id)).toEqual(['fast:a']);
+  });
+
   it('applies limitPerSource', async () => {
     const reg = createRegistry({ sources: [source('t', async () => [prof('1'), prof('2'), prof('3')])], store: memStore().store, bus: createEventBus(), config: testConfig() });
     expect((await reg.searchAll(brief, { limitPerSource: 2 })).profiles).toHaveLength(2);
