@@ -66,6 +66,7 @@ export interface WorkerDeps {
   config: Pick<
     Config,
     | 'SOKOSUMI_COWORKER_ID'
+    | 'SOKOSUMI_ORGANIZATION_ID'
     | 'SOKOSUMI_POLL_MS'
     | 'SOKOSUMI_PAID_TASKS'
     | 'SOKOSUMI_PAY_WINDOW_MIN'
@@ -316,6 +317,8 @@ export function createSokosumiWorker(deps: WorkerDeps): Worker {
     const tasks = await core.listReadyTasks(coworkerId);
     for (const t of tasks) {
       if (t.status !== 'READY' || (t.assigneeId && t.assigneeId !== coworkerId) || get(t.id)) continue;
+      const org = config.SOKOSUMI_ORGANIZATION_ID;
+      if (org && (org === 'personal' ? Boolean(t.organizationId) : t.organizationId !== org)) continue;
       const t0 = now();
       save({ taskId: t.id, name: t.name, description: t.description, stage: 'claimed', paid: config.SOKOSUMI_PAID_TASKS, createdAt: t0, updatedAt: t0 });
       setOpen([...openIds(), t.id]);

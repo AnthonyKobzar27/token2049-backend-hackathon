@@ -15,6 +15,7 @@ import { createEscrowProvider } from './payments';
 import { mountX402 } from './payments/x402';
 import { createRouter } from './router/router';
 import { createSuitabilityScorer } from './router/suitability';
+import { sokosumiWorkerFromConfig } from './sokosumi/setup';
 import { createBrowserSources } from './sources/browser';
 import { createFakeSource } from './sources/fake';
 import { createFreelancerSource } from './sources/freelancer';
@@ -66,6 +67,8 @@ const server = app.listen(config.PORT, () => {
   console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO ? 'on' : 'off'}`);
 });
 masumi.start();
+const sokosumi = sokosumiWorkerFromConfig({ config, store, jobs });
+sokosumi?.start();
 poller.start();
 telegram.start().catch((err) => console.error('[telegram] failed to start:', err));
 
@@ -75,6 +78,7 @@ async function shutdown() {
   stopping = true;
   poller.stop();
   masumi.stop();
+  sokosumi?.stop();
   await telegram.stop().catch(() => {});
   server.close();
   store.close();

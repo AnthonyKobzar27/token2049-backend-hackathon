@@ -84,6 +84,7 @@ function fakePayments(clock: { t: number }) {
 
 const config: WorkerDeps['config'] = {
   SOKOSUMI_COWORKER_ID: COWORKER,
+  SOKOSUMI_ORGANIZATION_ID: undefined,
   SOKOSUMI_POLL_MS: 10_000,
   SOKOSUMI_PAID_TASKS: true,
   SOKOSUMI_PAY_WINDOW_MIN: 20,
@@ -219,6 +220,18 @@ describe('Sokosumi worker', () => {
     await s.worker.tick();
     expect(s.worker.get('task_1')!.stage).toBe('failed');
     expect(s.worker.get('task_1')!.error).toMatch(/insufficient_balance/);
+  });
+
+  it('only takes Tasks of the configured Workspace', async () => {
+    const s = setup({ paid: false });
+    s.tasks[0]!.organizationId = 'org_event';
+    const personal = createSokosumiWorker({ ...s.deps, config: { ...s.deps.config, SOKOSUMI_ORGANIZATION_ID: 'personal' } });
+    await personal.tick();
+    expect(personal.get('task_1')).toBeNull();
+    const event = createSokosumiWorker({ ...s.deps, config: { ...s.deps.config, SOKOSUMI_ORGANIZATION_ID: 'org_event' } });
+    await event.tick();
+    expect(event.get('task_1')).not.toBeNull();
+    await event.drain();
   });
 
   it('fails paid Tasks when the payment service is not configured', async () => {
