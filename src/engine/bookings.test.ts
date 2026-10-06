@@ -4,6 +4,7 @@ import { createStore } from '../db/db';
 import { createEventBus } from '../domain/events';
 import type { ApprovalGate, EscrowProvider, FreelancerSource, SourceRegistry } from '../domain/ports';
 import type { BookingRequest, BookingResult, Candidate, EscrowRecord, HaasEvent, Job, PlatformBookingStatus } from '../domain/types';
+import type { ResultVerifier } from '../verify/verifier';
 import { createBookingService } from './bookings';
 
 const job: Job = { id: 'j1', status: 'running', client: 'local', brief: { task: 'logo', skills: [], remoteOk: true, budgetUsd: 90 }, round: 1, createdAt: 1, updatedAt: 1 };
@@ -18,6 +19,7 @@ interface Opts {
   book?: (r: BookingRequest) => Promise<BookingResult>;
   noBook?: boolean;
   status?: () => Promise<PlatformBookingStatus>;
+  verifier?: ResultVerifier;
 }
 
 function setup(o: Opts = {}) {
@@ -55,7 +57,7 @@ function setup(o: Opts = {}) {
     }),
     resolve: () => {},
   };
-  const svc = createBookingService({ store, bus, registry, escrow, gate, config: testConfig() });
+  const svc = createBookingService({ store, bus, registry, escrow, gate, config: testConfig(), verifier: o.verifier });
   const status = (id: string) => store.getBooking(id)!.status;
   return { store, events, svc, source, escrow, gate, asked, order, status, fund: () => { funded = true; } };
 }
@@ -212,26 +214,32 @@ describe('bookings settle', () => {
         if (++call === 1) throw new Error('flaky');
         return { status: 'delivered', deliveryText: 'here it is' };
       },
+      // QA that never finishes, so the delivered bookings stay visible in 'verifying'.
+      verifier: { verify: () => new Promise(() => {}) },
     });
     const err = vi.spyOn(console, 'error').mockImplementation(() => {});
     const second = h.svc.create(job, cand(50));
     await vi.waitFor(() => expect(h.status(second.id)).toBe('placed'));
     await h.svc.tick(); // first booking throws, second still polled
     expect(err).toHaveBeenCalled();
-    expect([h.status(id), h.status(second.id)].sort()).toEqual(['delivered', 'placed']);
+    expect([h.status(id), h.status(second.id)].sort()).toEqual(['placed', 'verifying']);
     await h.svc.tick();
-    expect(h.status(id)).toBe('delivered');
+    expect(h.status(id)).toBe('verifying');
     expect(h.store.getBooking(id)?.note).toContain('here it is');
+    expect(h.svc.delivery(id)).toEqual({ text: 'here it is' });
     err.mockRestore();
   });
 
-  it('tick refunds when the platform reports a cancellation, and releases on completion', async () => {
+  it('tick refunds when the platform reports a cancellation; a platform completion goes through QA before release', async () => {
     const a = await placed({ status: async () => ({ status: 'cancelled' }) });
     await a.h.svc.tick();
     expect(a.h.status(a.id)).toBe('refunded');
     const b = await placed({ status: async () => ({ status: 'completed' }) });
     await b.h.svc.tick();
-    expect(b.h.status(b.id)).toBe('completed');
+    // No content and no model: QA asks a person (the test gate approves), then releases.
+    await vi.waitFor(() => expect(b.h.status(b.id)).toBe('completed'));
+    expect(b.h.store.getBooking(b.id)?.verification?.verdict).toBe('needs_human');
+    expect(b.h.asked).toContain('accept');
     expect(b.h.store.getEscrowByBooking(b.id)?.status).toBe('released');
   });
 });
