@@ -53,7 +53,7 @@ app.get('/health', (_req, res) => {
 
 const masumi = mountMasumi(app, { jobs, store, bus, config });
 mountX402(app, { jobs, store, bus, config });
-mountVeridian(app, veridian, { publicUrl: config.PUBLIC_URL, verifyTimeoutMs: config.VERIDIAN_VERIFY_TIMEOUT_MS, ...(config.VERIDIAN_ADMIN_TOKEN ? { adminToken: config.VERIDIAN_ADMIN_TOKEN } : {}) });
+mountVeridian(app, veridian, { publicUrl: config.PUBLIC_URL, ...(config.VERIDIAN_OOBI_BASE_URL ? { oobiBaseUrl: config.VERIDIAN_OOBI_BASE_URL } : {}), verifyTimeoutMs: config.VERIDIAN_VERIFY_TIMEOUT_MS, ...(config.VERIDIAN_ADMIN_TOKEN ? { adminToken: config.VERIDIAN_ADMIN_TOKEN } : {}) });
 
 const telegram = createTelegram({ jobs, bookings, gate, policy, store, bus, config });
 const liaison = createLiaison({ store, bus, registry, gate, config });

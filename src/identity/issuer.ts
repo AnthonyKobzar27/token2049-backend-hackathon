@@ -66,7 +66,8 @@ export function createCip68Issuer(chain: ReputationChain, opts: { now?: () => nu
 }
 
 /**
- * Placeholder for a Veridian (Cardano Foundation, KERI + ACDC) issuer. It would:
+ * Placeholder kept for callers of this module; the implementation is createVeridianCredentialIssuer in
+ * ./veridian/issuer.ts (docs/VERIDIAN.md). The design it follows:
  *  1. hold an issuer AID for HAAS in a KERIA agent (signify-ts client),
  *  2. resolve the worker's OOBI (they hold their own AID in the Veridian wallet),
  *  3. issue an ACDC "HAAS Verified Worker" credential against a published schema (SAID), with the

@@ -1,0 +1,26 @@
+# KERIA (KERI agent server) for HAAS's Veridian credentials. See README.md and docs/VERIDIAN.md.
+#   docker compose up -d
+# The issuer AID runs without witnesses here; see README.md for witnesses (not verified yet).
+services:
+  keria:
+    build: .
+    restart: unless-stopped
+    environment:
+      # What wallets (and HAAS) dial for agent OOBIs. A phone needs a LAN IP or public URL here.
+      KERIA_PUBLIC_URL: ${KERIA_PUBLIC_URL:-http://127.0.0.1:3902/}
+      KERIA_IURLS: ${KERIA_IURLS:-}
+      KERIA_DURLS: ${KERIA_DURLS:-}
+      KERIA_LOG_LEVEL: ${KERIA_LOG_LEVEL:-INFO}
+    ports:
+      - "3901:3901" # admin (Signify clients: HAAS, the wallet's cloud agent)
+      - "3902:3902" # http: OOBIs and KERI messages between agents
+      - "3903:3903" # boot: creates agents; keep private outside a demo
+    volumes:
+      - keria-data:/usr/local/var/keri
+    extra_hosts:
+      # KERIA resolves the schema OOBI HAAS serves on the host (http://host.docker.internal:8787).
+      - "host.docker.internal:host-gateway"
+
+
+volumes:
+  keria-data:

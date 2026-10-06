@@ -23,6 +23,8 @@ import type { OnboardingSession, VeridianService } from './service';
 export interface VeridianApiOptions {
   adminToken?: string;
   publicUrl: string;
+  /** Base URL KERIA and wallets reach /oobi/{said} at (VERIDIAN_OOBI_BASE_URL); defaults to publicUrl. */
+  oobiBaseUrl?: string;
   verifyTimeoutMs?: number;
 }
 
@@ -58,7 +60,7 @@ export function mountVeridian(app: Express, veridian: VeridianService | null, op
     if (!veridian) return void off(res);
     try {
       const { issuerAid, registryId, schemaSaid } = await veridian.issuer.init();
-      res.json({ issuerAid, registryId, schemaSaid, oobi: await veridian.issuer.issuerOobi(), schemaOobi: `${opts.publicUrl}/oobi/${schemaSaid}` });
+      res.json({ issuerAid, registryId, schemaSaid, oobi: await veridian.issuer.issuerOobi(), schemaOobi: `${(opts.oobiBaseUrl ?? opts.publicUrl).replace(/\/+$/, '')}/oobi/${schemaSaid}` });
     } catch (err) {
       fail(res, err);
     }
