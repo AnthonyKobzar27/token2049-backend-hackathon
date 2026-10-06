@@ -1,0 +1,255 @@
+// Pure, deterministic matching: quote, hard filters, subscores, score, explanation, rank.
+
+import type { Brief, Candidate, FreelancerProfile, Subscores, SuitabilityScore } from '../domain/types';
+import { matchPlace } from './geo';
+
+const BUDGET_TOLERANCE = 1.1;
+const PRIOR_MEAN = 4.5;
+const PRIOR_WEIGHT = 10;
+const UNKNOWN_PENALTY = 2;
+const WEIGHTS: Record<keyof Subscores, number> = { suitability: 0.45, price: 0.2, rating: 0.15, availability: 0.1, speed: 0.1 };
+
+const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
+const median = (xs: number[]): number | null => {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
+};
+const money = (n: number): string => `$${n >= 100 ? Math.round(n) : Math.round(n * 100) / 100}`;
+
+// ------------------------------------------------------------------ quote
+
+export interface Quote {
+  quoteUsd?: number;
+  pricingIndex?: number;
+}
+
+/** Cheapest pricing that meets the deadline (else cheapest overall), priced for this brief. */
+export function quote(brief: Brief, profile: FreelancerProfile): Quote {
+  const items = profile.pricing.map((p, i) => ({
+    i,
+    p,
+    est: p.kind === 'fixed' ? p.amountUsd : brief.hoursNeeded !== undefined ? p.amountUsd * brief.hoursNeeded : undefined,
+  }));
+  if (items.length === 0) return {};
+  const fits = items.filter((x) => brief.deadlineDays === undefined || x.p.deliveryDays === undefined || x.p.deliveryDays <= brief.deadlineDays);
+  const pool = fits.length > 0 ? fits : items;
+  const known = pool.filter((x) => x.est !== undefined);
+  if (known.length > 0) {
+    const best = known.reduce((a, b) => (b.est! < a.est! ? b : a));
+    return { quoteUsd: best.est, pricingIndex: best.i };
+  }
+  const best = pool.reduce((a, b) => (b.p.amountUsd < a.p.amountUsd ? b : a));
+  return { pricingIndex: best.i };
+}
+
+// ---------------------------------------------------------- hard filters
+
+/** The reason a profile is dropped, or null. Only KNOWN violations drop; unknown never does. */
+export function dropReason(brief: Brief, profile: FreelancerProfile, q: Quote = quote(brief, profile)): string | null {
+  if (brief.budgetUsd !== undefined && q.quoteUsd !== undefined && q.quoteUsd > brief.budgetUsd * BUDGET_TOLERANCE) return 'over budget';
+
+  if (brief.deadlineDays !== undefined && profile.pricing.length > 0) {
+    const allKnown = profile.pricing.every((p) => p.deliveryDays !== undefined);
+    if (allKnown && profile.pricing.every((p) => p.deliveryDays! > brief.deadlineDays!)) return 'misses deadline';
+  }
+
+  if (brief.language && profile.languages && profile.languages.length > 0) {
+    const want = brief.language.toLowerCase();
+    if (!profile.languages.some((l) => l.toLowerCase() === want)) return 'language';
+  }
+
+  if (brief.remoteOk === false && brief.location && (profile.country || profile.city)) {
+    if (matchPlace(brief.location, profile) === 'elsewhere') return 'location';
+  }
+
+  const hpw = profile.availability?.hoursPerWeek;
+  if (brief.hoursNeeded !== undefined && brief.deadlineDays !== undefined && hpw !== undefined) {
+    if (hpw * (brief.deadlineDays / 7) < brief.hoursNeeded) return 'not enough hours';
+  }
+  return null;
+}
+
+// -------------------------------------------------------------- subscores
+
+export interface SetContext {
+  medianQuote: number | null;
+  medianDelivery: number | null;
+}
+
+function offsetHours(tz: string): number | null {
+  try {
+    const ref = new Date(Date.UTC(2026, 0, 15, 12));
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).formatToParts(ref);
+    const g = (t: string): number => Number(parts.find((p) => p.type === t)?.value);
+    return (Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute')) - ref.getTime()) / 3_600_000;
+  } catch {
+    return null;
+  }
+}
+
+/** Hours of overlap between two 09:00-18:00 working days. */
+export function workingOverlapHours(tzA: string, tzB: string): number | null {
+  const a = offsetHours(tzA);
+  const b = offsetHours(tzB);
+  if (a === null || b === null) return null;
+  let shift = Math.abs(a - b) % 24;
+  if (shift > 12) shift = 24 - shift;
+  return Math.max(0, 9 - shift);
+}
+
+const chosenPricing = (p: FreelancerProfile, q: Quote) => (q.pricingIndex !== undefined ? p.pricing[q.pricingIndex] : undefined);
+
+export function ratingScore(rating: number | undefined, reviews: number | undefined): number | null {
+  if (rating === undefined) return null;
+  const n = reviews ?? 0;
+  const shrunk = (rating * n + PRIOR_MEAN * PRIOR_WEIGHT) / (n + PRIOR_WEIGHT);
+  return clamp01(shrunk - 4);
+}
+
+function availabilityScore(brief: Brief, profile: FreelancerProfile): number | null {
+  const a = profile.availability;
+  const parts: number[] = [];
+  if (a?.online !== undefined) parts.push(a.online ? 1 : 0.4);
+  if (a?.responseHours !== undefined) {
+    const h = a.responseHours;
+    parts.push(h <= 1 ? 1 : h <= 4 ? 0.85 : h <= 12 ? 0.65 : h <= 24 ? 0.5 : h <= 72 ? 0.25 : 0.1);
+  }
+  if (a?.hoursPerWeek !== undefined) parts.push(clamp01(a.hoursPerWeek / 30));
+  if (brief.timezone && profile.timezone) {
+    const overlap = workingOverlapHours(brief.timezone, profile.timezone);
+    if (overlap !== null) parts.push(clamp01(overlap / 6));
+  }
+  return parts.length === 0 ? null : parts.reduce((x, y) => x + y, 0) / parts.length;
+}
+
+export function subscores(brief: Brief, profile: FreelancerProfile, q: Quote, ctx: SetContext, suit?: SuitabilityScore): Subscores {
+  let price: number | null = null;
+  if (q.quoteUsd !== undefined) {
+    if (brief.budgetUsd !== undefined && brief.budgetUsd > 0) price = clamp01(1 - 0.8 * (q.quoteUsd / brief.budgetUsd));
+    else if (ctx.medianQuote !== null && ctx.medianQuote > 0) price = clamp01(1 - 0.5 * (q.quoteUsd / ctx.medianQuote));
+  }
+  let speed: number | null = null;
+  const days = chosenPricing(profile, q)?.deliveryDays;
+  if (days !== undefined) {
+    if (brief.deadlineDays !== undefined && brief.deadlineDays > 0) speed = clamp01(1 - 0.7 * (days / brief.deadlineDays));
+    else if (ctx.medianDelivery !== null && ctx.medianDelivery > 0) speed = clamp01(1 - 0.5 * (days / ctx.medianDelivery));
+  }
+  return {
+    suitability: suit ? clamp01(suit.score) : null,
+    price,
+    rating: ratingScore(profile.rating, profile.reviewCount),
+    availability: availabilityScore(brief, profile),
+    speed,
+  };
+}
+
+/** 0-100: weighted mean over known subscores, minus a small penalty per unknown one. */
+export function totalScore(s: Subscores): number {
+  let sum = 0;
+  let w = 0;
+  let unknown = 0;
+  for (const k of Object.keys(WEIGHTS) as (keyof Subscores)[]) {
+    const v = s[k];
+    if (v === null) unknown++;
+    else {
+      sum += v * WEIGHTS[k];
+      w += WEIGHTS[k];
+    }
+  }
+  let total = w > 0 ? (sum / w) * 100 - unknown * UNKNOWN_PENALTY : 0;
+  if (s.suitability !== null && s.suitability < 0.25) total = Math.min(total, 40);
+  return Math.round(Math.min(100, Math.max(0, total)) * 10) / 10;
+}
+
+// ------------------------------------------------------------ explanation
+
+export function explain(brief: Brief, profile: FreelancerProfile, q: Quote, suit?: SuitabilityScore): { reason: string; unknowns: string[] } {
+  const parts: string[] = [];
+  const src = profile.platform;
+  const unknowns: string[] = [];
+  const pr = chosenPricing(profile, q);
+
+  if (suit?.reason) parts.push(suit.reason.trim().replace(/[.\s]+$/, ''));
+  if (pr) {
+    let s = pr.kind === 'fixed' ? `${money(pr.amountUsd)} fixed` : `${money(pr.amountUsd)}/h`;
+    if (pr.kind === 'hourly' && q.quoteUsd !== undefined && brief.hoursNeeded !== undefined) s += ` (about ${money(q.quoteUsd)} for ${brief.hoursNeeded}h)`;
+    if (pr.deliveryDays !== undefined) s += ` in ${pr.deliveryDays} day${pr.deliveryDays === 1 ? '' : 's'}`;
+    parts.push(s);
+  }
+  if (profile.rating !== undefined) {
+    parts.push(profile.reviewCount !== undefined ? `${profile.rating.toFixed(1)} from ${profile.reviewCount} review${profile.reviewCount === 1 ? '' : 's'}` : `rated ${profile.rating.toFixed(1)}`);
+  }
+  const rh = profile.availability?.responseHours;
+  if (rh !== undefined) parts.push(rh < 1 ? 'replies within the hour' : `replies in about ${Math.round(rh)} hour${Math.round(rh) === 1 ? '' : 's'}`);
+  else if (profile.availability?.online) parts.push('online now');
+
+  if (profile.pricing.length === 0) unknowns.push(`price not published on ${src}`);
+  else if (q.quoteUsd === undefined) unknowns.push('total cost unknown: hourly rate and no hours estimate');
+  if (profile.rating === undefined) unknowns.push(`rating not published on ${src}`);
+  else if (profile.reviewCount === undefined) unknowns.push(`review count not published on ${src}`);
+  if (profile.availability?.hoursPerWeek === undefined) unknowns.push(`hours per week not published on ${src}`);
+  if (rh === undefined) unknowns.push(`response time not published on ${src}`);
+  if (pr && pr.deliveryDays === undefined) unknowns.push(`delivery time not published on ${src}`);
+  if (brief.location && brief.remoteOk === false && !profile.country && !profile.city) unknowns.push(`location not published on ${src}`);
+  if (brief.language && (!profile.languages || profile.languages.length === 0)) unknowns.push(`languages not published on ${src}`);
+
+  const text = parts.length > 0 ? parts.join('; ') : 'Limited information published';
+  return { reason: `${text.charAt(0).toUpperCase()}${text.slice(1)}.`, unknowns };
+}
+
+// ------------------------------------------------------------------- rank
+
+export interface RankOptions {
+  limit: number;
+  exclude?: string[];
+}
+
+/** Hard-filters, scores, explains and orders profiles; at most ceil(limit*0.6) per platform while others remain. */
+export function rank(brief: Brief, profiles: FreelancerProfile[], suitability: Map<string, SuitabilityScore>, opts: RankOptions): Candidate[] {
+  const excluded = new Set(opts.exclude ?? []);
+  const seen = new Set<string>();
+  const kept: { profile: FreelancerProfile; q: Quote }[] = [];
+  for (const profile of profiles) {
+    if (excluded.has(profile.id) || seen.has(profile.id)) continue;
+    seen.add(profile.id);
+    const q = quote(brief, profile);
+    if (dropReason(brief, profile, q) === null) kept.push({ profile, q });
+  }
+
+  const ctx: SetContext = {
+    medianQuote: median(kept.flatMap((k) => (k.q.quoteUsd !== undefined ? [k.q.quoteUsd] : []))),
+    medianDelivery: median(kept.flatMap((k) => { const d = chosenPricing(k.profile, k.q)?.deliveryDays; return d !== undefined ? [d] : []; })),
+  };
+
+  const scored: Candidate[] = kept.map(({ profile, q }) => {
+    const suit = suitability.get(profile.id);
+    const sub = subscores(brief, profile, q, ctx, suit);
+    const { reason, unknowns } = explain(brief, profile, q, suit);
+    const c: Candidate = { profile, score: totalScore(sub), subscores: sub, reason, unknowns };
+    if (q.quoteUsd !== undefined) c.quoteUsd = q.quoteUsd;
+    if (q.pricingIndex !== undefined) c.pricingIndex = q.pricingIndex;
+    return c;
+  });
+  scored.sort((a, b) => b.score - a.score || a.profile.id.localeCompare(b.profile.id));
+
+  const cap = Math.max(1, Math.ceil(opts.limit * 0.6));
+  const perPlatform = new Map<string, number>();
+  const picked: Candidate[] = [];
+  const overflow: Candidate[] = [];
+  for (const c of scored) {
+    if (picked.length >= opts.limit) break;
+    const n = perPlatform.get(c.profile.platform) ?? 0;
+    if (n >= cap) overflow.push(c);
+    else {
+      picked.push(c);
+      perPlatform.set(c.profile.platform, n + 1);
+    }
+  }
+  for (const c of overflow) {
+    if (picked.length >= opts.limit) break;
+    picked.push(c);
+  }
+  return picked.sort((a, b) => b.score - a.score || a.profile.id.localeCompare(b.profile.id));
+}
