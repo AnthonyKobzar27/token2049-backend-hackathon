@@ -48,6 +48,10 @@ x402 client (Cardano)        ─┘     start_job · status · provide_input
   - *Job fee on Cardano*: through the Masumi Payment Service, or x402 on Cardano Preprod.
   - *Booking budget on Solana*: the hirer's budget is held in USDC per booking, released when the delivery is accepted and refunded on cancellation.
 
+## Verified workers on Cardano
+
+Every worker HAAS books can hold a **"HAAS Verified Worker" credential**: a CIP-68 token pair on Cardano Preprod. Each completed, verified, paid job updates the credential's on-chain record (jobs completed, average rating, total earned) and mints a job receipt NFT. The receipt links the Masumi job id, the hash of the verified result and the payment transaction. The router gives verified workers a small, capped boost ("on-chain verified, 7 jobs completed on HAAS"). `GET /workers/:id/reputation` returns the asset ids and Cardanoscan links. Try `pnpm identity:demo`; the details are in [docs/IDENTITY.md](docs/IDENTITY.md).
+
 ## Honest limits
 
 - Freelancer platforms pay their sellers in fiat and forbid paying them elsewhere, so the Solana escrow protects the **hirer's** money; the operator fronts the platform payment and is repaid on release. The escrow is a server-held vault, not an on-chain program.
@@ -89,4 +93,5 @@ Secrets and the database live in `~/.haas/`, outside the repository.
 | `src/channels/`, `src/agent/` | Telegram bot, brief intake, liaison between hirer and freelancer |
 | `src/approvals/` | Approval gate and autonomy policy |
 | `src/payments/` | Solana escrow and the x402 paywall |
+| `src/identity/` | Worker credential and on-chain reputation on Cardano (CIP-68), see [docs/IDENTITY.md](docs/IDENTITY.md) |
 | `src/domain/` | Shared types and module contracts |
