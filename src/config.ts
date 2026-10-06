@@ -68,12 +68,25 @@ const schema = z.object({
   /** Mnemonic of the wallet our own client pays x402 with (spike and demo only). */
   X402_CLIENT_MNEMONIC: optional,
 
-  /** Booking budget escrow. */
-  ESCROW_PROVIDER: z.enum(['memory', 'solana']).default('memory'),
+  /**
+   * Booking budget escrow. 'solana-program': on-chain Anchor escrow (programs/haas-escrow);
+   * 'solana-vault' (or legacy 'solana'): server-held vault wallet; 'memory': no chain.
+   */
+  ESCROW_PROVIDER: z.enum(['memory', 'solana', 'solana-vault', 'solana-program']).default('memory'),
   SOLANA_RPC_URL: z.string().default('https://api.devnet.solana.com'),
   SOLANA_USDC_MINT: z.string().default('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'),
   /** Base58 secret key of the operator wallet: pays fees, receives released funds. */
   SOLANA_OPERATOR_SECRET: optional,
+  /** Deployed haas-escrow program (devnet). */
+  SOLANA_ESCROW_PROGRAM_ID: z.string().default('9hzyeY6LPaQzJWszBjtYU17sHN2XmQD6FmyJFCNrs727'),
+  /** Minutes the hirer has to fund escrow before the booking is cancelled. */
+  ESCROW_DEPOSIT_TIMEOUT_MIN: int(60),
+  /** Delivery window in days when the brief has no deadline. */
+  ESCROW_DELIVERY_DAYS: int(14),
+  /** Hours added after the delivery window before the escrow deadline (time to review and verify). */
+  ESCROW_GRACE_HOURS: int(24),
+  /** Demo override: escrow deadline this many minutes after booking, ignoring the two above. 0 = off. */
+  ESCROW_DEADLINE_MIN: int(0),
 
   REQUIRE_APPROVAL_FOR_ROUTINE_MESSAGES: bool(false),
 });

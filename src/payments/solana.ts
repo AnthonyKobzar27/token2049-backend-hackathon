@@ -85,10 +85,10 @@ export function decodeOperatorSecret(secret: string): Keypair {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const isRateLimit = (e: unknown) => /429|too many requests|rate limit/i.test(msg(e));
-const isExpired = (e: unknown) => /block height exceeded|blockhash not found|has expired/i.test(msg(e));
+export const isExpired = (e: unknown) => /block height exceeded|blockhash not found|has expired/i.test(msg(e));
 
 /** Runs an RPC call, backing off on rate limits (the public devnet RPC does this often). */
-async function rpc<T>(what: string, fn: () => Promise<T>, delays = [1000, 2000, 4000, 8000]): Promise<T> {
+export async function rpc<T>(what: string, fn: () => Promise<T>, delays = [1000, 2000, 4000, 8000]): Promise<T> {
   for (let i = 0; ; i++) {
     try {
       return await fn();
