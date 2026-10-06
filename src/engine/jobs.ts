@@ -1,4 +1,5 @@
 import type { Config } from '../config';
+import type { Delegator } from '../delegate/delegate';
 import { assertJobTransition } from '../domain/machine';
 import { newId, now } from '../domain/ids';
 import type { BookingService, EventBus, JobService, Router, Store } from '../domain/ports';
@@ -10,6 +11,8 @@ export interface JobDeps {
   router: Router;
   bookings: BookingService;
   config: Config;
+  /** Optional AI-first step: tried once per job before the human router. */
+  delegate?: Delegator;
 }
 
 const excludeKey = (jobId: string) => `job:${jobId}:exclude`;
@@ -44,6 +47,16 @@ export function createJobService(deps: JobDeps): JobService {
     try {
       const job = store.getJob(jobId);
       if (!job || job.status !== 'running') return;
+      if (deps.delegate && !job.path) {
+        const ai = await deps.delegate.tryAi(job);
+        const cur = store.getJob(jobId);
+        if (!cur || cur.status !== 'running') return;
+        if (ai.result) {
+          move(jobId, 'completed', { path: 'ai', result: ai.result });
+          return;
+        }
+        store.updateJob(jobId, { path: 'human' });
+      }
       const exclude = readList(excludeKey(jobId));
       const feedback = store.getKv(feedbackKey(jobId)) ?? undefined;
       const { candidates, sources } = await router.route(job.brief, { jobId, limit: config.SHORTLIST_SIZE, exclude, feedback });
@@ -68,7 +81,7 @@ export function createJobService(deps: JobDeps): JobService {
   const routeInBackground = (jobId: string) => void route(jobId);
 
   function complete(job: Job, result: JobResult): Job {
-    return move(job.id, 'completed', { result });
+    return move(job.id, 'completed', { result: { path: job.path ?? 'human', ...result } });
   }
 
   function candidateFor(job: Job, profileId: string): Candidate | undefined {
