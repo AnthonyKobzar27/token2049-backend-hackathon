@@ -256,13 +256,21 @@ export function createBuyer(config: Config, opts: { fetch?: Fetch; now?: () => M
       const blockchainIdentifier = str(start.blockchainIdentifier);
       const free = config.AI_AGENT_FREE || start.payment_required === false || !blockchainIdentifier || blockchainIdentifier.startsWith('free');
       let paid = false;
+      // Set before the purchase call: if it is cut off (timeout, AI budget) the payment service may
+      // still have created the purchase and lock the funds, so any failure from here asks for a refund.
+      let purchaseSent = false;
+      const refundIfPaid = () => (purchaseSent && blockchainIdentifier ? requestRefund(blockchainIdentifier) : Promise.resolve());
       if (!free) {
         onProgress?.(`Locking payment for ${agent.name} on Cardano…`);
-        await purchase({ ifp, start, agentIdentifier: agent.agentIdentifier, inputHash: hash, signal });
+        purchaseSent = true;
+        try {
+          await purchase({ ifp, start, agentIdentifier: agent.agentIdentifier, inputHash: hash, signal });
+        } catch (err) {
+          void refundIfPaid();
+          throw err;
+        }
         paid = true;
       }
-
-      const refundIfPaid = () => (paid && blockchainIdentifier ? requestRefund(blockchainIdentifier) : Promise.resolve());
       onProgress?.(`${agent.name} is working on it (job ${jobId})…`);
 
       let status: Record<string, unknown>;
@@ -298,6 +306,12 @@ export function createBuyer(config: Config, opts: { fetch?: Fetch; now?: () => M
           await refundIfPaid();
           throw new BuyerError(`result hash mismatch from ${agent.name}${paid ? '; refund requested' : ''}`);
         }
+      }
+
+      // The caller gave up meanwhile (its time budget ran out): it will not use this output, so do not pay for it.
+      if (signal?.aborted) {
+        void refundIfPaid();
+        throw signal.reason instanceof Error ? signal.reason : new BuyerError('hire aborted');
       }
 
       return {

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { testConfig, type Config } from '../config';
 import { fakePaymentService, fakeRegistry, fakeSeller, type Fake } from './__fixtures__/fake-seller';
 import { buildInputData, createBuyer, newPurchaserId, schemaFields } from './buyer';
@@ -121,5 +121,39 @@ describe('buyer', () => {
   it('never rejects findAgents when the registry is down', async () => {
     const agents = await createBuyer(testConfig({ MASUMI_REGISTRY_URL: 'http://127.0.0.1:1', AI_AGENT_URL: 'http://p' })).findAgents();
     expect(agents).toHaveLength(1);
+  });
+});
+
+describe('buyer refunds when it gives up after paying', () => {
+  it('asks for a refund when the purchase call is cut off by the time budget', async () => {
+    const seller = track(await fakeSeller({ paid: true }));
+    const pay = track(await fakePaymentService());
+    // The payment service records the purchase, but its answer arrives after the budget ran out.
+    const slowPurchase: typeof fetch = async (input, init) => {
+      const res = await fetch(input, init);
+      if (String(input).endsWith('/purchase/')) await new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true }));
+      return res;
+    };
+    const buyer = createBuyer(testConfig({ MASUMI_API_URL: pay.url, MASUMI_API_KEY: 'k' }), { ...fast, fetch: slowPurchase });
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(new Error('AI time budget used up')), 100);
+    await expect(buyer.hire({ name: 'A', apiBaseUrl: seller.url, source: 'pinned' }, 'Translate hello', { signal: ctrl.signal })).rejects.toThrow();
+    await vi.waitFor(() => expect(pay.log.map((l) => l.path)).toContain('/purchase/request-refund'));
+  });
+
+  it('asks for a refund when the caller gave up while the paid agent finished', async () => {
+    const seller = track(await fakeSeller({ paid: true, resultHash: 'good' }));
+    const pay = track(await fakePaymentService());
+    const ctrl = new AbortController();
+    // The seller's final status arrives just after the budget ran out.
+    const lateStatus: typeof fetch = async (input, init) => {
+      const res = await fetch(input, init);
+      const text = await res.text();
+      if (String(input).includes('/status') && JSON.parse(text).status === 'completed') ctrl.abort(new Error('AI time budget used up'));
+      return new Response(text, { status: res.status, headers: res.headers });
+    };
+    const buyer = createBuyer(testConfig({ MASUMI_API_URL: pay.url, MASUMI_API_KEY: 'k' }), { ...fast, fetch: lateStatus });
+    await expect(buyer.hire({ name: 'A', apiBaseUrl: seller.url, source: 'pinned' }, 'Translate hello', { signal: ctrl.signal })).rejects.toThrow();
+    await vi.waitFor(() => expect(pay.log.map((l) => l.path)).toContain('/purchase/request-refund'));
   });
 });
