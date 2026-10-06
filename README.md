@@ -26,7 +26,8 @@ Nothing is booked until a person agrees.
 
 1. **Check-in before booking.** The job pauses with a shortlist. You confirm a candidate, ask for different options, or change the brief. This uses the `awaiting_input` step built into Masumi's agent API, so any Masumi client gets it for free.
 2. **Approval for binding actions.** Booking, paying, accepting a delivery, asking for a revision and cancelling each wait for an explicit approval.
-3. **Check-ins after booking.** HAAS keeps both people informed: it answers the freelancer's routine questions from the brief, and when it can't, it asks you and relays the answer.
+3. **Quality check before payment.** A delivery is checked before any escrow is released: rule checks first (required fields, date/time/reference formats, links that answer, not empty, not a copy of the brief), then a Claude rubric against the brief. Pass: you see the QA report and approve the release. Fail: the freelancer gets one revision request listing what failed; a second failure rejects the work and refunds the escrow. When the model is slow, unavailable or unsure, a person decides.
+4. **Check-ins after booking.** HAAS keeps both people informed: it answers the freelancer's routine questions from the brief, and when it can't, it asks you and relays the answer.
 
 ## How it works
 
@@ -87,6 +88,7 @@ Secrets and the database live in `~/.haas/`, outside the repository.
 | `src/engine/` | Job and booking lifecycles |
 | `src/masumi/` | MIP-003 API and Masumi payments |
 | `src/channels/`, `src/agent/` | Telegram bot, brief intake, liaison between hirer and freelancer |
+| `src/verify/` | Result verifier (QA) and the shared result hash |
 | `src/approvals/` | Approval gate and autonomy policy |
 | `src/payments/` | Solana escrow and the x402 paywall |
 | `src/domain/` | Shared types and module contracts |
