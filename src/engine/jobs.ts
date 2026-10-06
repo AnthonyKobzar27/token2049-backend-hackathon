@@ -28,6 +28,7 @@ export interface JobDeps {
 
 const excludeKey = (jobId: string) => `job:${jobId}:exclude`;
 const feedbackKey = (jobId: string) => `job:${jobId}:feedback`;
+const aiTriedKey = (jobId: string) => `job:${jobId}:ai_tried`;
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 export function createJobService(deps: JobDeps): JobService {
@@ -58,12 +59,17 @@ export function createJobService(deps: JobDeps): JobService {
     try {
       const job = store.getJob(jobId);
       if (!job || job.status !== 'running') return;
-      if (deps.delegate && !job.path) {
+      // Marked before hiring: after a restart mid-hire the job goes to the human router instead of
+      // hiring (and possibly paying) a second agent for the same work.
+      if (deps.delegate && !job.path && store.getKv(aiTriedKey(jobId))) store.updateJob(jobId, { path: 'human' });
+      else if (deps.delegate && !job.path) {
+        store.setKv(aiTriedKey(jobId), String(now()));
         const ai = await deps.delegate.tryAi(job);
         const cur = store.getJob(jobId);
         if (!cur || cur.status !== 'running') return;
         if (ai.result) {
-          move(jobId, 'completed', { path: 'ai', result: ai.result });
+          // complete() also carries an x402 settlement into the result, as on the human path.
+          complete(store.updateJob(jobId, { path: 'ai' }), ai.result);
           return;
         }
         store.updateJob(jobId, { path: 'human' });

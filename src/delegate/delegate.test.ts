@@ -69,6 +69,28 @@ describe('AI-first delegation in the job lifecycle', () => {
     expect(pay.log.map((l) => l.path)).toContain('/purchase/');
   });
 
+  it('after a restart mid-hire, goes to the human router instead of hiring a second agent', async () => {
+    const seller = track(await fakeSeller());
+    const { store, jobs, route } = setup({ AI_AGENT_URL: seller.url });
+    // The previous process marked the AI attempt and died before recording its outcome.
+    store.insertJob({ id: 'job_r', status: 'running', client: 'local', brief: digital, round: 1, createdAt: 1, updatedAt: 1 });
+    store.setKv('job:job_r:ai_tried', '1');
+    await jobs.tick();
+    await settled(store, 'job_r', 'awaiting_input');
+    expect(store.getJob('job_r')?.path).toBe('human');
+    expect(route).toHaveBeenCalledTimes(1);
+    expect(seller.log.filter((l) => l.path === '/start_job')).toHaveLength(0);
+  });
+
+  it('keeps an x402 settlement in an AI result', async () => {
+    const seller = track(await fakeSeller({ output: 'done' }));
+    const { store, jobs } = setup({ AI_AGENT_URL: seller.url });
+    store.insertJob({ id: 'job_x', status: 'running', client: 'x402', brief: digital, round: 1, createdAt: 1, updatedAt: 1, settlement: { network: 'solana:devnet', transaction: 'tx1' } as never });
+    await jobs.tick();
+    await settled(store, 'job_x', 'completed');
+    expect(store.getJob('job_x')?.result).toMatchObject({ path: 'ai', output: 'done', settlement: { transaction: 'tx1' } });
+  });
+
   it('sends human work straight to the router', async () => {
     const seller = track(await fakeSeller());
     const { store, jobs, route } = setup({ AI_AGENT_URL: seller.url });
