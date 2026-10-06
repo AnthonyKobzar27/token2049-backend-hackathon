@@ -210,3 +210,30 @@ describe('jobs', () => {
     expect(h.calls).toHaveLength(0);
   });
 });
+
+describe('paid result window', () => {
+  const pay = (submitResultTime: number) => ({ blockchainIdentifier: 'bc', identifierFromPurchaser: 'ifp', payByTime: 0, submitResultTime, unlockTime: 0, externalDisputeUnlockTime: 0, paidAt: 1 }) as never;
+
+  it('refuses to book once the result can no longer be submitted in time, and ends the job', async () => {
+    const { jobs, store, created } = setup();
+    const job = jobs.startJob({ brief, client: 'masumi' });
+    await settled(store, job.id, 'awaiting_input');
+    store.updateJob(job.id, { payment: pay(Date.now() + 5 * 60_000) });
+    expect(() => jobs.provideInput(job.id, { action: 'confirm', profileId: 'fake:a' })).toThrow(/result window has closed/);
+    expect(created).toHaveLength(0);
+    expect(store.getJob(job.id)).toMatchObject({ status: 'completed', result: { outcome: 'no_booking' } });
+  });
+
+  it('closes an unanswered check-in before the result deadline, not only after CHECKIN_TIMEOUT_MIN', async () => {
+    const { jobs, store } = setup();
+    const open = jobs.startJob({ brief, client: 'masumi' });
+    const late = jobs.startJob({ brief, client: 'masumi' });
+    await settled(store, open.id, 'awaiting_input');
+    await settled(store, late.id, 'awaiting_input');
+    store.updateJob(open.id, { payment: pay(Date.now() + 60 * 60_000) });
+    store.updateJob(late.id, { payment: pay(Date.now() + 9 * 60_000) });
+    await jobs.tick();
+    expect(store.getJob(open.id)?.status).toBe('awaiting_input');
+    expect(store.getJob(late.id)?.result?.summary).toMatch(/result window closed/);
+  });
+});

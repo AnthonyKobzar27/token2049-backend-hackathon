@@ -30,6 +30,11 @@ const excludeKey = (jobId: string) => `job:${jobId}:exclude`;
 const feedbackKey = (jobId: string) => `job:${jobId}:feedback`;
 const aiTriedKey = (jobId: string) => `job:${jobId}:ai_tried`;
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
+/** A paid Masumi job stops taking a booking this long before its result deadline (the buyer refunds after it). */
+const RESULT_MARGIN_MS = 10 * 60_000;
+/** True once a paid job's result can no longer be submitted in time: booking now would pay a freelancer for a refunded job. */
+const pastResultWindow = (job: Job, t: number): boolean => !!job.payment?.paidAt && t > job.payment.submitResultTime - RESULT_MARGIN_MS;
+const WINDOW_CLOSED = 'The paid result window closed before a freelancer was confirmed; nothing was booked.';
 
 export function createJobService(deps: JobDeps): JobService {
   const { store, bus, router, bookings, config } = deps;
@@ -199,6 +204,10 @@ export function createJobService(deps: JobDeps): JobService {
       }
 
       if (input.action === 'confirm') {
+        if (pastResultWindow(job, now())) {
+          complete(job, { outcome: 'no_booking', summary: WINDOW_CLOSED });
+          throw new Error('the paid job\'s result window has closed; nothing was booked');
+        }
         const candidate = candidateFor(job, input.profileId);
         if (!candidate) throw new Error(`Profile ${input.profileId} is not on the latest shortlist of job ${jobId}`);
         const booking = bookings.create(job, candidate);
@@ -237,7 +246,8 @@ export function createJobService(deps: JobDeps): JobService {
       }
       for (const job of store.listJobs({ status: 'awaiting_input' })) {
         try {
-          if (t - job.updatedAt > timeoutMs) complete(job, { outcome: 'no_booking', summary: 'The check-in expired without an answer.' });
+          if (pastResultWindow(job, t)) complete(job, { outcome: 'no_booking', summary: WINDOW_CLOSED });
+          else if (t - job.updatedAt > timeoutMs) complete(job, { outcome: 'no_booking', summary: 'The check-in expired without an answer.' });
         } catch (err) {
           console.error(`[jobs] tick failed for ${job.id}:`, err);
         }
