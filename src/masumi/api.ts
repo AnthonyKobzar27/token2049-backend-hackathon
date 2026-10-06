@@ -129,6 +129,8 @@ export const mountMasumi: MountMasumi = (app, deps) => {
   const payments = paid ? createPaymentClient(config) : undefined;
   const watcher = createWatcher(deps, payments);
   const signer = loadSigner({ seed: config.MASUMI_SIGNING_KEY, getKv: (k) => store.getKv(k), setKv: (k, v) => store.setKv(k, v) });
+  /** start_job requests in flight, by input hash: a concurrent retry waits for the first answer. */
+  const starting = new Map<string, Promise<string | undefined>>();
   const router = Router();
 
   const masumiJob = (id: string): Job => {
@@ -169,65 +171,86 @@ export const mountMasumi: MountMasumi = (app, deps) => {
       const rawInput = body.data.input_data ?? body.data.inputData ?? body.data.input;
       const brief = parseBrief(rawInput);
       if (!brief.ok) throw new HttpError(400, brief.errors.join('; '));
-      const ifp = body.data.identifier_from_purchaser ?? body.data.identifierFromPurchaser ?? randomBytes(10).toString('hex');
+      const given = body.data.identifier_from_purchaser ?? body.data.identifierFromPurchaser;
+      const ifp = given ?? randomBytes(10).toString('hex');
       // Hashed exactly as the purchaser sent it (MIP-004), not as the parsed Brief.
       const hash = inputHash(rawInput, ifp);
 
-      if (!payments) {
-        const job = jobs.startJob({ brief: brief.value, client: 'masumi' });
-        store.setKv(`masumi:ifp:${job.id}`, ifp);
-        const t = Date.now();
-        return res.json({
+      // A retry (same identifier_from_purchaser, same input) gets the same job and payment request,
+      // never a second job that could book or charge twice.
+      const onceKey = `masumi:start:${hash}`;
+      if (given) {
+        const prior = store.getKv(onceKey) ?? (await starting.get(onceKey));
+        if (prior) return res.json(JSON.parse(prior));
+      }
+      const respond = (out: Record<string, unknown>) => {
+        if (given) store.setKv(onceKey, JSON.stringify(out));
+        return res.json(out);
+      };
+      let done!: (v: string | undefined) => void;
+      if (given) starting.set(onceKey, new Promise((r) => (done = r)));
+      try {
+        if (!payments) {
+          const job = jobs.startJob({ brief: brief.value, client: 'masumi' });
+          store.setKv(`masumi:ifp:${job.id}`, ifp);
+          const t = Date.now();
+          return respond({
+            id: job.id,
+            job_id: job.id,
+            status: 'success',
+            blockchainIdentifier: `free_${job.id}`,
+            payByTime: t,
+            submitResultTime: t + 86_400_000,
+            unlockTime: t,
+            externalDisputeUnlockTime: t,
+            agentIdentifier: config.MASUMI_AGENT_IDENTIFIER ?? '',
+            sellerVKey: '',
+            identifierFromPurchaser: ifp,
+            input_hash: hash,
+            inputHash: hash,
+            payment_required: false,
+          });
+        }
+
+        if (!HEX_NONCE.test(ifp)) throw new HttpError(400, 'identifier_from_purchaser must be 14 to 26 hex characters (payment service requirement)');
+        const jobId = newId('job');
+        let payment: JobPayment;
+        try {
+          payment = await payments.createPayment({
+            inputHash: hash,
+            identifierFromPurchaser: ifp,
+            amounts: [quoteFee(brief.value, config)],
+            metadata: JSON.stringify({ haasJobId: jobId }),
+          });
+        } catch (err) {
+          console.error('[masumi] create payment failed:', (err as Error).message);
+          throw new HttpError(500, 'could not create the payment request');
+        }
+        const job = jobs.startJob({ brief: brief.value, client: 'masumi', awaitPayment: true, id: jobId });
+        store.updateJob(job.id, { payment });
+        return respond({
           id: job.id,
           job_id: job.id,
           status: 'success',
-          blockchainIdentifier: `free_${job.id}`,
-          payByTime: t,
-          submitResultTime: t + 86_400_000,
-          unlockTime: t,
-          externalDisputeUnlockTime: t,
-          agentIdentifier: config.MASUMI_AGENT_IDENTIFIER ?? '',
-          sellerVKey: '',
+          blockchainIdentifier: payment.blockchainIdentifier,
+          payByTime: payment.payByTime,
+          submitResultTime: payment.submitResultTime,
+          unlockTime: payment.unlockTime,
+          externalDisputeUnlockTime: payment.externalDisputeUnlockTime,
+          agentIdentifier: payment.agentIdentifier,
+          sellerVKey: payment.sellerVKey,
           identifierFromPurchaser: ifp,
           input_hash: hash,
           inputHash: hash,
-          payment_required: false,
+          payment_required: true,
+          ...purchaseHints(payment),
         });
+      } finally {
+        if (given) {
+          done(store.getKv(onceKey) ?? undefined);
+          starting.delete(onceKey);
+        }
       }
-
-      if (!HEX_NONCE.test(ifp)) throw new HttpError(400, 'identifier_from_purchaser must be 14 to 26 hex characters (payment service requirement)');
-      const jobId = newId('job');
-      let payment: JobPayment;
-      try {
-        payment = await payments.createPayment({
-          inputHash: hash,
-          identifierFromPurchaser: ifp,
-          amounts: [quoteFee(brief.value, config)],
-          metadata: JSON.stringify({ haasJobId: jobId }),
-        });
-      } catch (err) {
-        console.error('[masumi] create payment failed:', (err as Error).message);
-        throw new HttpError(500, 'could not create the payment request');
-      }
-      const job = jobs.startJob({ brief: brief.value, client: 'masumi', awaitPayment: true, id: jobId });
-      store.updateJob(job.id, { payment });
-      res.json({
-        id: job.id,
-        job_id: job.id,
-        status: 'success',
-        blockchainIdentifier: payment.blockchainIdentifier,
-        payByTime: payment.payByTime,
-        submitResultTime: payment.submitResultTime,
-        unlockTime: payment.unlockTime,
-        externalDisputeUnlockTime: payment.externalDisputeUnlockTime,
-        agentIdentifier: payment.agentIdentifier,
-        sellerVKey: payment.sellerVKey,
-        identifierFromPurchaser: ifp,
-        input_hash: hash,
-        inputHash: hash,
-        payment_required: true,
-        ...purchaseHints(payment),
-      });
     }),
   );
 

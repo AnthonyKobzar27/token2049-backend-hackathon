@@ -276,6 +276,21 @@ describe('MIP-003 routes, unpaid mode', () => {
 const BRIEF = { input_data: [] };
 
 describe('paid mode', () => {
+  it('start_job is idempotent per identifier_from_purchaser and input: retries never start a second job or payment', async () => {
+    const ps = await fakePaymentService();
+    const { req, jobsById } = await boot(paidConfig(ps.url));
+    const body = { identifier_from_purchaser: 'abcdef0123456789abcd', input_data: { task: 'Logo' } };
+    const [a, b] = await Promise.all([req('POST', '/start_job', body), req('POST', '/start_job', body)]);
+    const c = await req('POST', '/start_job', body);
+    expect(b.body).toEqual(a.body);
+    expect(c.body).toEqual(a.body);
+    expect(ps.log.filter((l) => l.path === '/payment')).toHaveLength(1);
+    expect(jobsById.size).toBe(1);
+    const other = await req('POST', '/start_job', { ...body, input_data: { task: 'Website' } });
+    expect(other.body.job_id).not.toBe(a.body.job_id);
+    expect(jobsById.size).toBe(2);
+  });
+
   it('Dynamic USDM payment, funds lock, result hash once, collection after unlock', async () => {
     const ps = await fakePaymentService();
     const config = paidConfig(ps.url);
