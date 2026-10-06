@@ -123,6 +123,8 @@ describe('demo story: book a physio slot through a bounty', () => {
     expect(s.bounty.board.get(b.id)?.status).toBe('expired');
     await s.bookings.tick();
     expect(s.store.listBookings()[0]).toMatchObject({ status: 'refunded' });
+    const done = await statusOf(call, jobId, 'completed');
+    expect(JSON.parse(done.result as string)).toMatchObject({ outcome: 'no_booking' });
   });
 
   it('refuses a CAPTCHA-solving brief: no bounty worker is offered', async () => {
