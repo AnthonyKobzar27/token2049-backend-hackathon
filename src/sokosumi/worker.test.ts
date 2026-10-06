@@ -53,7 +53,7 @@ function fakePayments(clock: { t: number }) {
   const payments: PaymentClient = {
     createPayment: vi.fn(async (input: CreatePaymentInput): Promise<JobPayment> => {
       created.push(input);
-      const w = input.windows!;
+      const w = { payMin: 0, resultMin: 0, unlockDelayMin: 0, disputeDelayMin: 0, ...input.windows };
       const submitResultTime = clock.t + w.resultMin * MIN;
       const unlockTime = submitResultTime + w.unlockDelayMin * MIN;
       return {
@@ -88,8 +88,8 @@ const config: WorkerDeps['config'] = {
   SOKOSUMI_PAID_TASKS: true,
   SOKOSUMI_PAY_WINDOW_MIN: 20,
   SOKOSUMI_RESULT_WINDOW_MIN: 30,
-  MASUMI_UNLOCK_DELAY_MIN: 16,
-  MASUMI_DISPUTE_DELAY_MIN: 16,
+  SOKOSUMI_UNLOCK_DELAY_MIN: 16,
+  SOKOSUMI_DISPUTE_DELAY_MIN: 16,
   MASUMI_NETWORK: 'Preprod',
   MASUMI_AGENT_IDENTIFIER: AGENT,
   MASUMI_SMART_CONTRACT_ADDRESS: undefined,

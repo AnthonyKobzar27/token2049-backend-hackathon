@@ -70,8 +70,8 @@ export interface WorkerDeps {
     | 'SOKOSUMI_PAID_TASKS'
     | 'SOKOSUMI_PAY_WINDOW_MIN'
     | 'SOKOSUMI_RESULT_WINDOW_MIN'
-    | 'MASUMI_UNLOCK_DELAY_MIN'
-    | 'MASUMI_DISPUTE_DELAY_MIN'
+    | 'SOKOSUMI_UNLOCK_DELAY_MIN'
+    | 'SOKOSUMI_DISPUTE_DELAY_MIN'
     | 'MASUMI_NETWORK'
     | 'MASUMI_AGENT_IDENTIFIER'
     | 'MASUMI_SMART_CONTRACT_ADDRESS'
@@ -138,8 +138,8 @@ export function createSokosumiWorker(deps: WorkerDeps): Worker {
   const windows = (): Windows => ({
     payMin: config.SOKOSUMI_PAY_WINDOW_MIN,
     resultMin: config.SOKOSUMI_RESULT_WINDOW_MIN,
-    unlockDelayMin: config.MASUMI_UNLOCK_DELAY_MIN,
-    disputeDelayMin: config.MASUMI_DISPUTE_DELAY_MIN,
+    unlockDelayMin: config.SOKOSUMI_UNLOCK_DELAY_MIN,
+    disputeDelayMin: config.SOKOSUMI_DISPUTE_DELAY_MIN,
   });
 
   async function fail(rec: TaskRecord, error: string): Promise<void> {
