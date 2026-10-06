@@ -130,8 +130,19 @@ export function escrowInstructions(e: EscrowRecord, solanaRpcUrl: string): strin
   const lines = [`<b>Pay into escrow</b>: ${esc(e.amount)} ${esc(e.currency)}`];
   if (e.address) lines.push(`Address:\n<code>${esc(e.address)}</code>`);
   if (solanaRpcUrl.includes('devnet')) lines.push('This is a test setup: switch your wallet to devnet.');
-  lines.push('Scan the QR code with a Solana wallet, or send the amount to the address. I will tell you when it arrives.');
+  if (e.address) lines.push('Scan the QR code with a Solana wallet, or send the amount to the address. I will tell you when it arrives.');
+  else {
+    // On-chain program escrow: the QR is a Solana Pay transaction request the wallet signs.
+    lines.push('Scan the QR code with a Solana wallet and approve the transaction: it locks the amount in the HAAS escrow program. I will tell you when it arrives.');
+    if (e.deadline) lines.push(`If the work is not accepted by ${esc(new Date(e.deadline).toISOString().slice(0, 16).replace('T', ' '))} UTC, the money goes back to you.`);
+  }
   return lines.join('\n');
+}
+
+export function escrowTimeoutLine(kind: 'deposit_expired' | 'delivery_expired', e: EscrowRecord): string {
+  if (kind === 'deposit_expired') return 'The escrow deposit did not arrive in time, so I cancelled the booking.';
+  const text = 'The delivery was not accepted before the escrow deadline, so the budget was returned to you';
+  return e.explorerUrl && e.status === 'refunded' ? `${text}. <a href="${esc(e.explorerUrl)}">View transaction</a>` : `${text}.`;
 }
 
 export function escrowLine(e: EscrowRecord): string | null {

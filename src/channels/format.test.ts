@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Approval, Booking, Candidate, EscrowRecord, Shortlist } from '../domain/types';
-import { approvalRequest, bookingStatusLine, callbackData, candidateCard, chunk, esc, escrowInstructions, parseCallback, shortlistHeader } from './format';
+import { approvalRequest, bookingStatusLine, callbackData, candidateCard, chunk, esc, escrowInstructions, escrowTimeoutLine, parseCallback, shortlistHeader } from './format';
 
 const candidate: Candidate = {
   profile: {
@@ -71,6 +71,16 @@ describe('format', () => {
     expect(escrowInstructions(e, 'https://api.devnet.solana.com')).toContain('switch your wallet to devnet');
     expect(escrowInstructions(e, 'https://api.mainnet-beta.solana.com')).not.toContain('devnet');
     expect(escrowInstructions(e, 'x')).toContain('<code>Addr123</code>');
+  });
+
+  it('program escrow instructions: sign in the wallet, refund date; timeout lines', () => {
+    const e = { amount: 5, currency: 'USDC', deadline: Date.UTC(2026, 9, 20, 12, 0) } as EscrowRecord;
+    const text = escrowInstructions(e, 'x');
+    expect(text).toContain('approve the transaction');
+    expect(text).toContain('2026-10-20 12:00 UTC');
+    expect(text).not.toContain('Address');
+    expect(escrowTimeoutLine('deposit_expired', e)).toContain('cancelled');
+    expect(escrowTimeoutLine('delivery_expired', { ...e, status: 'refunded', explorerUrl: 'https://explorer.solana.com/tx/s' })).toContain('href="https://explorer.solana.com/tx/s"');
   });
 
   it('booking status lines', () => {

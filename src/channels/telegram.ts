@@ -14,6 +14,7 @@ import {
   emptyShortlistText,
   esc,
   escrowInstructions,
+  escrowTimeoutLine,
   escrowLine,
   jobResult,
   parseCallback,
@@ -322,6 +323,11 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
           const line = escrowLine(e);
           if (line) await api.send(chat, line);
         }
+        return;
+      }
+      case 'escrow.timeout': {
+        const chat = chatOfBooking(event.booking.id);
+        if (chat) await api.send(chat, escrowTimeoutLine(event.kind, event.escrow));
         return;
       }
       case 'conversation.message': {
