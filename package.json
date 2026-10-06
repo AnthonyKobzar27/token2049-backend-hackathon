@@ -12,7 +12,9 @@
     "spike:x402": "tsx scripts/x402-spike.ts",
     "spike:solana": "tsx scripts/solana-spike.ts",
     "smoke:browser": "tsx scripts/browser-smoke.ts",
-    "register:agent": "tsx scripts/register-agent.ts"
+    "register:agent": "tsx scripts/register-agent.ts",
+    "veridian:schema": "tsx src/identity/veridian/schema.ts",
+    "veridian:demo": "tsx scripts/veridian-demo.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -29,6 +31,7 @@
     "grammy": "^1.46.0",
     "playwright-core": "^1.63.0",
     "qrcode": "^1.5.4",
+    "signify-ts": "0.4.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
