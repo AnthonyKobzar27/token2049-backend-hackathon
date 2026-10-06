@@ -187,6 +187,12 @@ export function createSokosumiWorker(deps: WorkerDeps): Worker {
       } catch (err) {
         // A retry after a lost response: the Task is already RUNNING.
         const t = await core.getTask(id).catch(() => null);
+        if (t && t.status !== 'READY' && t.status !== 'RUNNING') {
+          // Canceled, reassigned or finished before we started: nothing of ours was written, so drop it quietly.
+          log(`task ${id} is ${t.status}, not READY; dropped`);
+          save({ ...rec, stage: 'failed', error: `Task is ${t.status}, not READY` });
+          return;
+        }
         if (t?.status !== 'RUNNING') throw err;
       }
       rec = save({ ...rec, stage: 'running' });
@@ -241,6 +247,13 @@ export function createSokosumiWorker(deps: WorkerDeps): Worker {
           masumiPayment: masumiPayment(terms),
           comment: `HAAS job fee: ${terms.amounts?.map((a) => `${a.amount} ${a.unit || 'lovelace'}`).join(' + ')}. Escrow ${terms.blockchainIdentifier.slice(0, 24)}...`,
         });
+        if (ev.status && ev.status !== 'RUNNING') {
+          // Core could not charge (e.g. OUT_OF_CREDITS): it moved the Task instead of creating the payment claim, so
+          // no escrow will be funded. The Task's owner sees that status; we stop here.
+          log(`task ${id}: Sokosumi did not charge the Task, it is now ${ev.status}`);
+          save({ ...rec, paymentEventId: ev.id, stage: 'failed', error: `Sokosumi did not charge the Task (${ev.status})` });
+          return;
+        }
         rec = save({ ...rec, paymentEventId: ev.id, stage: 'payment_posted' });
         log(`task ${id} masumiPayment event ${ev.id} posted`);
       } catch (err) {

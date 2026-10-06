@@ -243,6 +243,35 @@ describe('Sokosumi worker', () => {
     expect(s.worker.get('task_1')!.error).toMatch(/insufficient_balance/);
   });
 
+  it('drops a Task canceled before it started, without writing to it', async () => {
+    const s = setup({ paid: false });
+    const post = s.core.postEvent;
+    s.core.postEvent = async (id, ev) => {
+      if (ev.status === 'RUNNING') {
+        s.tasks[0]!.status = 'CANCELED';
+        throw new CoreError('task is not READY', 422);
+      }
+      return post(id, ev);
+    };
+    await pass(s.worker);
+    expect(s.worker.get('task_1')).toMatchObject({ stage: 'failed', error: 'Task is CANCELED, not READY' });
+    expect(s.events).toHaveLength(0);
+    expect(s.runHaas).not.toHaveBeenCalled();
+  });
+
+  it('stops when Sokosumi answers the payment event without charging (out of credits)', async () => {
+    const s = setup();
+    const post = s.core.postEvent;
+    s.core.postEvent = async (id, ev) => {
+      const out = await post(id, ev);
+      return ev.masumiPayment ? { ...out, status: 'OUT_OF_CREDITS' } : out;
+    };
+    await pass(s.worker);
+    expect(s.worker.get('task_1')).toMatchObject({ stage: 'failed', error: 'Sokosumi did not charge the Task (OUT_OF_CREDITS)' });
+    expect(s.runHaas).not.toHaveBeenCalled();
+    expect(s.payments.getPayment).not.toHaveBeenCalled();
+  });
+
   it('only takes Tasks of the configured Workspace', async () => {
     const s = setup({ paid: false });
     s.tasks[0]!.organizationId = 'org_event';
