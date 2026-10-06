@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Approval, Booking, Candidate, EscrowRecord, Shortlist } from '../domain/types';
-import { approvalRequest, bookingStatusLine, callbackData, candidateCard, chunk, esc, escrowInstructions, parseCallback, shortlistHeader } from './format';
+import { approvalRequest, bookingStatusLine, verificationLine, callbackData, candidateCard, chunk, esc, escrowInstructions, parseCallback, shortlistHeader } from './format';
 
 const candidate: Candidate = {
   profile: {
@@ -83,5 +83,20 @@ describe('format', () => {
 
   it('approval request escapes', () => {
     expect(approvalRequest({ action: 'book', summary: '<x>' } as Approval)).toContain('&lt;x&gt;');
+  });
+});
+
+describe('format: QA', () => {
+  const b = { id: 'bk_1', jobId: 'j', profileId: 'p', platform: 'fake', source: 's', status: 'verifying', priceUsd: 10, paused: false, createdAt: 0, updatedAt: 0 } as Booking;
+  it('renders a QA outcome with escaped failed checks, and the new booking states', () => {
+    const r = { verdict: 'fail' as const, score: 0.234, summary: 'Missing <ref>', checks: [{ name: 'field:ref', ok: false, detail: 'required field "ref" is missing' }, { name: 'ok', ok: true, detail: 'fine' }], resultHash: 'h', deliveryHash: 'd', attempt: 1, ms: 1, at: 1 };
+    const line = verificationLine(b, r);
+    expect(line).toContain('Quality check failed (score 23/100, attempt 1)');
+    expect(line).toContain('Missing &lt;ref&gt;');
+    expect(line).toContain('• required field &quot;ref&quot; is missing');
+    expect(line).not.toContain('fine');
+    expect(verificationLine(b, { ...r, verdict: 'pass', score: 1 })).not.toContain('•');
+    expect(bookingStatusLine(b)).toMatch(/Checking the work/);
+    expect(bookingStatusLine({ ...b, status: 'rejected' })).toMatch(/refunded/);
   });
 });

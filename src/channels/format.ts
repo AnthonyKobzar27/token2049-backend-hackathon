@@ -1,6 +1,6 @@
 // Pure formatting for Telegram (HTML parse mode). Every dynamic string goes through esc().
 
-import type { Approval, Booking, Candidate, EscrowRecord, Job, Shortlist, SourceStatus } from '../domain/types';
+import type { Approval, Booking, Candidate, EscrowRecord, Job, Shortlist, SourceStatus, VerificationReport } from '../domain/types';
 
 export const MAX_MESSAGE = 4096;
 
@@ -110,6 +110,9 @@ const STATUS_TEXT: Partial<Record<Booking['status'], string>> = {
   placed: 'Booked. The freelancer has the order.',
   handoff: 'One step needs you to finish on the platform.',
   delivered: 'The freelancer delivered. Review it; the operator will accept or ask for a revision.',
+  verifying: 'The freelancer delivered. Checking the work before any payment is released.',
+  verified: 'The work passed the quality check. Waiting for the release approval.',
+  rejected: 'The work failed the quality check twice. Nothing is paid; your deposit is being refunded.',
   completed: 'Completed. The escrowed budget is being released.',
   cancelled: 'The booking was cancelled.',
   refunded: 'The booking was cancelled and your deposit is being refunded.',
@@ -152,6 +155,21 @@ export function bookingsList(bookings: Booking[]): string {
   return bookings
     .map((b) => `<code>${esc(b.id)}</code> · ${esc(b.status)}${b.paused ? ' · paused' : ''} · ${esc(b.platform)} · ${usd(b.priceUsd)}`)
     .join('\n');
+}
+
+const QA_HEAD: Record<VerificationReport['verdict'], string> = {
+  pass: 'Quality check passed',
+  fail: 'Quality check failed',
+  needs_human: 'Quality check needs a person',
+};
+
+/** The outcome of one QA run (event 'verification.completed'): verdict, score, summary and the failed checks. */
+export function verificationLine(b: Booking, r: VerificationReport): string {
+  const lines = [`<b>Booking ${esc(b.id)}</b>: ${QA_HEAD[r.verdict]} (score ${Math.round(r.score * 100)}/100, attempt ${r.attempt}).`, esc(r.summary)];
+  const failed = r.checks.filter((c) => !c.ok);
+  if (r.verdict !== 'pass') for (const c of failed.slice(0, 5)) lines.push(`• ${esc(c.detail || c.name)}`);
+  if (failed.length > 5) lines.push(`… and ${failed.length - 5} more`);
+  return lines.join('\n');
 }
 
 // ----------------------------------------------------------- chunking
