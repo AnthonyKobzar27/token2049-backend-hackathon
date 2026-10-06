@@ -160,7 +160,9 @@ export function createBookingService(deps: BookingDeps): BookingService {
     }
     if (!canBookingTransition(booking.status, st.status)) return;
     const extra = [st.deliveryText, ...(st.deliveryUrls ?? [])].filter(Boolean).join('\n');
-    move(booking.id, st.status, extra ? { note: extra } : {});
+    const hasDelivery = Boolean(st.deliveryText || st.deliverySummary || st.deliveryData || st.deliveryUrls?.length);
+    const delivery = hasDelivery ? { text: st.deliveryText, summary: st.deliverySummary, data: st.deliveryData, urls: st.deliveryUrls, at: now() } : undefined;
+    move(booking.id, st.status, { ...(extra && { note: extra }), ...(delivery && { delivery }) });
     if (st.status === 'completed') await release(booking.id);
   }
 

@@ -34,6 +34,21 @@ export interface TgApi {
   clearKeyboard(chatId: string, messageId: number): Promise<void>;
 }
 
+/**
+ * Extra command sets (e.g. the bounty board's worker commands) that share this bot but stay
+ * out of the hirer flow. Handlers return an HTML reply, or undefined for no reply.
+ */
+export interface TelegramExtension {
+  commands: Record<string, (ctx: { chatId: string; userId: string; args: string }) => Promise<string | undefined>>;
+  /** Called once the bot runs, with a sender for proactive messages (HTML). */
+  onStart?(send: (chatId: string, html: string) => Promise<unknown>): void;
+  onStop?(): void;
+}
+const extensions: TelegramExtension[] = [];
+export function registerTelegramExtension(ext: TelegramExtension): void {
+  extensions.push(ext);
+}
+
 const EDIT_INTERVAL_MS = 1500;
 const START_TEXT = [
   '<b>HAAS</b>: Human as a Service, an open router for freelancers.',
@@ -447,6 +462,15 @@ export const createTelegram: CreateTelegram = (deps) => {
           await api.send(String(ctx.chat.id), reply);
         });
       }
+      for (const ext of extensions) {
+        for (const [cmd, handler] of Object.entries(ext.commands)) {
+          b.command(cmd, async (ctx) => {
+            const reply = await handler({ chatId: String(ctx.chat.id), userId: String(ctx.from?.id), args: ctx.match });
+            if (reply) await api.send(String(ctx.chat.id), reply);
+          });
+        }
+        ext.onStart?.((chatId, html) => api.send(chatId, html));
+      }
       b.on('message:text', async (ctx) => {
         if (ctx.message.text.startsWith('/')) return;
         await c.onText(String(ctx.chat.id), ctx.message.text);
@@ -472,6 +496,7 @@ export const createTelegram: CreateTelegram = (deps) => {
     async stop() {
       unsubscribe?.();
       unsubscribe = undefined;
+      for (const ext of extensions) ext.onStop?.();
       controller?.dispose();
       try { await bot?.stop(); } catch (err) { console.error('[telegram] stop failed:', errText(err)); }
       bot = undefined;

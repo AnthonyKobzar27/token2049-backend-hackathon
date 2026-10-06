@@ -203,6 +203,18 @@ const schema = z.object({
   MASUMI_REGISTRY_TOKEN: optional,
   /** Buyer side of the payment service; defaults to MASUMI_API_KEY. */
   MASUMI_BUYER_API_KEY: optional,
+
+  // First-party bounty board (registered workers do microtasks).
+  /** 'broadcast': offer to nearby verified workers, first claim wins. 'direct': only the chosen worker. */
+  BOUNTY_MODE: z.enum(['broadcast', 'direct']).default('broadcast'),
+  /** Minutes a posted bounty waits for a claim before it expires. */
+  BOUNTY_CLAIM_MIN: int(15),
+  /** Minutes a claimed bounty has to be submitted before it expires. */
+  BOUNTY_SUBMIT_MIN: int(60),
+  /** Workers within this many km of the task are offered a broadcast bounty. */
+  BOUNTY_RADIUS_KM: int(15),
+  /** Maximum workers one broadcast bounty is offered to. */
+  BOUNTY_BROADCAST_MAX: int(5),
 });
 
 export type Config = z.infer<typeof schema>;

@@ -3,6 +3,7 @@
 // Usage: pnpm spike:masumi [haas-url]   (HAAS running with MASUMI_API_KEY + MASUMI_AGENT_IDENTIFIER set)
 import { randomBytes } from 'node:crypto';
 import { loadConfig } from '../src/config';
+import { schemaHash } from '../src/masumi/hash';
 
 const config = loadConfig();
 const haas = (process.argv[2] ?? `http://localhost:${config.PORT}`).replace(/\/+$/, '');
@@ -84,7 +85,7 @@ async function main() {
     const choice = values[0];
     if (!choice) throw new Error('no candidate to confirm');
     log(`provide_input: ${choice}`);
-    log('provide_input ->', await http('POST', `${haas}/provide_input`, { job_id: job.id, input_data: { choice } }));
+    log('provide_input ->', await http('POST', `${haas}/provide_input`, { job_id: job.id, input_schema_hash: schemaHash(awaiting.input_schema), input_data: { choice } }));
   }
 
   const done = await waitFor(job.id, ['completed'], 10 * 60_000);

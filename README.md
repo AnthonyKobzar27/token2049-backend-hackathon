@@ -65,6 +65,38 @@ x402 client (Cardano/Solana) ─┘     start_job · status · provide_input
 
 Each source has a search timeout (`SOURCE_TIMEOUT_MS`, and lower ones for Upwork and Prolific), so a slow platform never holds up the shortlist.
 
+## Bounty board: microtasks for nearby humans
+
+Some jobs are five minutes of a person's time, not a freelancer project: a phone call, a quick
+errand, a photo of a noticeboard. HAAS has its own source for those, `bounty`, backed by a pool of
+registered, verified workers with locations, skills and Cardano/Solana payout wallets.
+
+```
+"Call Tanjong Pagar Polyclinic and book the earliest physio slot this week"
+  -> bounty "Phone call, ~5 min, book a physio slot, S$3" (result fields: date, time, reference)
+  -> offered to nearby verified workers (first claim wins) or to the one the caller chose
+  -> claimed -> submitted -> checked -> accepted -> worker paid, escrow released
+  -> MIP-003 /status: "Booked: Thursday 3pm, ref 88213" plus the fields as JSON
+```
+
+- **Lifecycle.** `posted -> claimed -> submitted -> verified -> paid`, or `rejected` / `expired` /
+  `cancelled`. A bounty nobody claims within `BOUNTY_CLAIM_MIN`, or a claim not submitted within
+  `BOUNTY_SUBMIT_MIN`, expires and the hirer's escrow is refunded.
+- **Result schema.** Derived from the brief (the model drafts it when a key is set; rules otherwise).
+  Submissions are validated against it, then checked (dates in range, plausible reference, notes
+  that contradict the result); a failed check goes back to the worker with the reason.
+- **Worker side, no app.** A mobile page per worker and bounty (`/w/<token>`: task, Claim, result
+  form), Telegram commands in the same bot (`/link`, `/tasks`, `/claim`, `/submit`, `/ask`), and a
+  `WorkerNotifier` interface for adding channels such as iMessage.
+- **Legitimate work only.** Briefs that ask for solving CAPTCHAs, passing bot checks, getting around
+  a site's controls, bulk accounts or fake reviews are refused and never reach a worker.
+
+```bash
+pnpm demo:bounty          # the whole story locally, with a scripted teammate
+pnpm demo:bounty --live   # waits for a real teammate to claim on the printed /w/ link
+pnpm seed:workers         # registers the demo team in ~/.haas/haas.db for `pnpm start`
+```
+
 ## Honest limits
 
 - Freelancer platforms pay their sellers in fiat and forbid paying them elsewhere, so the Solana escrow protects the **hirer's** money; the operator fronts the platform payment and is repaid on release. The escrow is a server-held vault, not an on-chain program.
@@ -121,6 +153,7 @@ DEMO_MODE=true pnpm start
 |---|---|
 | `src/router/` | Filters, scoring, explanations, suitability |
 | `src/sources/` | One adapter per platform, plus the registry and cache |
+| `src/bounty/` | First-party bounty board: workers, lifecycle, result spec and check, worker page and Telegram commands |
 | `src/engine/` | Job and booking lifecycles |
 | `src/masumi/` | MIP-003 API and Masumi payments |
 | `src/sokosumi/` | Sokosumi Coworker worker: runs HAAS on Tasks and settles each through Masumi |

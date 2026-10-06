@@ -14,7 +14,9 @@
     "smoke:browser": "tsx scripts/browser-smoke.ts",
     "demo:warm": "tsx scripts/demo-warm.ts",
     "register:agent": "tsx scripts/register-agent.ts",
-    "sokosumi:worker": "tsx scripts/sokosumi-worker.ts"
+    "sokosumi:worker": "tsx scripts/sokosumi-worker.ts",
+    "seed:workers": "tsx scripts/seed-workers.ts",
+    "demo:bounty": "tsx scripts/demo-bounty.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
