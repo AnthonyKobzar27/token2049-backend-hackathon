@@ -68,7 +68,10 @@ export function formatShortlist(brief: Brief, shortlist: Shortlist | null): stri
 export function createHaasRunner(deps: { jobs: JobService; timeoutMs: number; pollMs?: number }) {
   const pollMs = deps.pollMs ?? 1000;
   return async (brief: Brief, taskId: string): Promise<HaasRun> => {
-    const job = deps.jobs.startJob({ brief, client: 'sokosumi', clientRef: taskId });
+    // One engine job per Task, by id: after a worker restart the Task resumes its job instead of
+    // starting (and routing, or paying an AI agent for) a second one.
+    const id = `job_sk_${taskId.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+    const job = deps.jobs.getJob(id) ?? deps.jobs.startJob({ id, brief, client: 'sokosumi', clientRef: taskId });
     const deadline = Date.now() + deps.timeoutMs;
     let cur: Job | null = job;
     while (cur && cur.status === 'running') {
