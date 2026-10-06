@@ -1,0 +1,237 @@
+import { describe, expect, it, vi } from 'vitest';
+import { testConfig } from '../config';
+import { createStore } from '../db/db';
+import { createEventBus } from '../domain/events';
+import type { ApprovalGate, EscrowProvider, FreelancerSource, SourceRegistry } from '../domain/ports';
+import type { BookingRequest, BookingResult, Candidate, EscrowRecord, HaasEvent, Job, PlatformBookingStatus } from '../domain/types';
+import { createBookingService } from './bookings';
+
+const job: Job = { id: 'j1', status: 'running', client: 'local', brief: { task: 'logo', skills: [], remoteOk: true, budgetUsd: 90 }, round: 1, createdAt: 1, updatedAt: 1 };
+const cand = (quoteUsd?: number): Candidate => ({
+  profile: { id: 'fake:a', platform: 'fake', platformId: 'a', url: 'https://x/a', name: 'Ada', headline: 'Logo designer', skills: [], pricing: [], fetchedAt: 1 },
+  score: 80, subscores: { suitability: 1, price: 1, rating: 1, availability: 1, speed: 1 }, reason: 'r', unknowns: [], quoteUsd,
+});
+
+interface Opts {
+  funded?: boolean;
+  approve?: boolean | (() => Promise<boolean>);
+  book?: (r: BookingRequest) => Promise<BookingResult>;
+  noBook?: boolean;
+  status?: () => Promise<PlatformBookingStatus>;
+}
+
+function setup(o: Opts = {}) {
+  const store = createStore(':memory:');
+  store.insertJob(job);
+  const bus = createEventBus();
+  const events: HaasEvent[] = [];
+  bus.on((e) => events.push(e));
+  const order: string[] = [];
+
+  const source: FreelancerSource = {
+    name: 'fake-src', platform: 'fake', kind: 'fixture', isEnabled: () => true, search: async () => [],
+    ...(o.noBook ? {} : { book: vi.fn(async (r: BookingRequest) => { order.push('book'); return o.book ? o.book(r) : { kind: 'placed' as const, platformRef: 'ord1', url: 'https://x/ord1' }; }) }),
+    getBookingStatus: vi.fn(o.status ?? (async () => ({ status: 'placed' as const }))),
+    acceptDelivery: vi.fn(async () => {}),
+    requestRevision: vi.fn(async () => {}),
+  };
+  const registry: SourceRegistry = { all: () => [source], enabled: () => [source], get: (n) => (n === source.name ? source : undefined), searchAll: async () => ({ profiles: [], sources: [] }) };
+
+  let funded = o.funded ?? true;
+  const escrow: EscrowProvider = {
+    name: 'test', currency: 'USDC',
+    create: async ({ bookingId, amountUsd }) => ({ id: `es_${bookingId}`, bookingId, provider: 'test', status: funded ? 'funded' : 'awaiting_deposit', amount: amountUsd, currency: 'USDC', createdAt: 1, updatedAt: 1 }),
+    refresh: vi.fn(async (e: EscrowRecord) => ({ ...e, status: funded ? ('funded' as const) : e.status })),
+    release: vi.fn(async (e: EscrowRecord) => ({ ...e, status: 'released' as const })),
+    refund: vi.fn(async (e: EscrowRecord) => ({ ...e, status: 'refunded' as const })),
+  };
+  const asked: string[] = [];
+  const gate: ApprovalGate = {
+    request: vi.fn(async (req) => {
+      asked.push(req.action);
+      if (req.action === 'book') order.push('approval');
+      const a = typeof o.approve === 'function' ? await o.approve() : (o.approve ?? true);
+      return { approved: a };
+    }),
+    resolve: () => {},
+  };
+  const svc = createBookingService({ store, bus, registry, escrow, gate, config: testConfig() });
+  const status = (id: string) => store.getBooking(id)!.status;
+  return { store, events, svc, source, escrow, gate, asked, order, status, fund: () => { funded = true; } };
+}
+
+describe('bookings.create', () => {
+  it('prices from the quote, then budget, then 0, and picks the matching source', async () => {
+    const h = setup({ funded: false });
+    const b = h.svc.create(job, cand(42));
+    expect(b).toMatchObject({ status: 'pending_escrow', priceUsd: 42, source: 'fake-src', platform: 'fake', paused: false });
+    expect(h.svc.create(job, cand()).priceUsd).toBe(90);
+    expect(h.svc.create({ ...job, brief: { ...job.brief, budgetUsd: undefined } }, cand()).priceUsd).toBe(0);
+  });
+
+  it('auto-funded escrow: persists escrow, asks the book approval and places', async () => {
+    const h = setup();
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+    const done = h.store.getBooking(b.id)!;
+    expect(done).toMatchObject({ platformRef: 'ord1', url: 'https://x/ord1', escrowId: `es_${b.id}` });
+    expect(h.store.getEscrowByBooking(b.id)?.status).toBe('funded');
+    const req = vi.mocked(h.gate.request).mock.calls[0]![0];
+    expect(req).toMatchObject({ action: 'book', jobId: 'j1', bookingId: b.id });
+    expect(req.summary).toMatch(/Ada/);
+    expect(req.summary).toMatch(/fake/);
+    expect(req.summary).toMatch(/50/);
+    const seen = h.events.filter((e) => e.type === 'booking.updated').map((e) => (e as { booking: { status: string } }).booking.status);
+    expect(seen).toEqual(['pending_escrow', 'pending_escrow', 'escrowed', 'awaiting_approval', 'placed']);
+    expect(h.events.some((e) => e.type === 'escrow.updated')).toBe(true);
+    expect(vi.mocked(h.source.book!).mock.calls[0]![0]).toMatchObject({ bookingId: b.id, priceUsd: 50, profile: { id: 'fake:a' }, brief: { task: 'logo' } });
+  });
+
+  it('waits for a deposit that arrives on a later tick', async () => {
+    const h = setup({ funded: false });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.store.getBooking(b.id)?.escrowId).toBeTruthy());
+    await h.svc.tick();
+    expect(h.status(b.id)).toBe('pending_escrow');
+    expect(h.source.book).not.toHaveBeenCalled();
+    h.fund();
+    await h.svc.tick();
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+    expect(h.store.getEscrowByBooking(b.id)?.status).toBe('funded');
+  });
+
+  it('refunds when the approval is denied', async () => {
+    const h = setup({ approve: false });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('refunded'));
+    expect(h.source.book).not.toHaveBeenCalled();
+    expect(h.escrow.refund).toHaveBeenCalledTimes(1);
+    expect(h.store.getEscrowByBooking(b.id)?.status).toBe('refunded');
+    expect(h.store.getBooking(b.id)?.note).toMatch(/not approved/);
+    const seen = h.events.filter((e) => e.type === 'booking.updated').map((e) => (e as { booking: { status: string } }).booking.status);
+    expect(seen).toContain('cancelled');
+  });
+
+  it('refunds when book() throws', async () => {
+    const h = setup({ book: async () => { throw new Error('site down'); } });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('refunded'));
+    expect(h.store.getBooking(b.id)?.note).toMatch(/site down/);
+    expect(h.store.getEscrowByBooking(b.id)?.status).toBe('refunded');
+  });
+
+  it('maps a handoff result and keeps the instructions in note', async () => {
+    const h = setup({ book: async () => ({ kind: 'handoff', url: 'https://x/pay', instructions: 'Click pay', platformRef: 'o9' }) });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('handoff'));
+    expect(h.store.getBooking(b.id)).toMatchObject({ url: 'https://x/pay', note: 'Click pay', platformRef: 'o9' });
+  });
+
+  it('goes to handoff with the profile URL when the source has no book()', async () => {
+    const h = setup({ noBook: true });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('handoff'));
+    expect(h.store.getBooking(b.id)?.url).toBe('https://x/a');
+    expect(h.asked).toEqual(['book']);
+  });
+
+  it('never calls book() before escrow is funded and the book approval is granted', async () => {
+    let grant!: () => void;
+    const h = setup({ funded: false, approve: () => new Promise<boolean>((r) => { grant = () => r(true); }) });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.store.getBooking(b.id)?.escrowId).toBeTruthy());
+    await h.svc.tick();
+    await h.svc.tick();
+    expect(h.source.book).not.toHaveBeenCalled(); // unfunded
+    expect(h.gate.request).not.toHaveBeenCalled();
+    h.fund();
+    await h.svc.tick();
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('awaiting_approval'));
+    await h.svc.tick(); // funded and waiting: must not request a second approval or book
+    await new Promise((r) => setTimeout(r, 20));
+    expect(h.source.book).not.toHaveBeenCalled(); // funded, approval pending
+    expect(vi.mocked(h.gate.request).mock.calls.filter(([r]) => r.action === 'book')).toHaveLength(1);
+    grant();
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+    expect(h.order).toEqual(['approval', 'book']);
+    expect(h.source.book).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('bookings settle', () => {
+  async function placed(o: Opts = {}) {
+    const h = setup(o);
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+    return { h, id: b.id };
+  }
+
+  it('accept asks the gate, accepts delivery, completes and releases escrow', async () => {
+    const { h, id } = await placed();
+    const done = await h.svc.accept(id);
+    expect(done.status).toBe('completed');
+    expect(h.asked).toContain('accept');
+    expect(h.source.acceptDelivery).toHaveBeenCalledWith('ord1');
+    expect(h.escrow.release).toHaveBeenCalledTimes(1);
+    expect(h.store.getEscrowByBooking(id)?.status).toBe('released');
+  });
+
+  it('accept leaves the booking unchanged when denied', async () => {
+    const { h, id } = await placed();
+    vi.mocked(h.gate.request).mockResolvedValueOnce({ approved: false });
+    const same = await h.svc.accept(id);
+    expect(same.status).toBe('placed');
+    expect(h.escrow.release).not.toHaveBeenCalled();
+    expect(h.source.acceptDelivery).not.toHaveBeenCalled();
+  });
+
+  it('requestRevision moves to in_revision', async () => {
+    const { h, id } = await placed();
+    const b = await h.svc.requestRevision(id, 'bluer please');
+    expect(b.status).toBe('in_revision');
+    expect(h.source.requestRevision).toHaveBeenCalledWith('ord1', 'bluer please');
+    expect(h.asked).toContain('revise');
+  });
+
+  it('cancel refunds escrow; denial changes nothing; final bookings throw', async () => {
+    const { h, id } = await placed();
+    vi.mocked(h.gate.request).mockResolvedValueOnce({ approved: false });
+    expect((await h.svc.cancel(id, 'changed mind')).status).toBe('placed');
+    const b = await h.svc.cancel(id, 'changed mind');
+    expect(b.status).toBe('refunded');
+    expect(b.note).toBe('changed mind');
+    expect(h.store.getEscrowByBooking(id)?.status).toBe('refunded');
+    await expect(h.svc.cancel(id, 'again')).rejects.toThrow();
+    await expect(h.svc.accept(id)).rejects.toThrow();
+  });
+
+  it('tick polls the platform and applies status; one failing booking does not stop the loop', async () => {
+    let call = 0;
+    const { h, id } = await placed({
+      status: async () => {
+        if (++call === 1) throw new Error('flaky');
+        return { status: 'delivered', deliveryText: 'here it is' };
+      },
+    });
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const second = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(second.id)).toBe('placed'));
+    await h.svc.tick(); // first booking throws, second still polled
+    expect(err).toHaveBeenCalled();
+    expect([h.status(id), h.status(second.id)].sort()).toEqual(['delivered', 'placed']);
+    await h.svc.tick();
+    expect(h.status(id)).toBe('delivered');
+    expect(h.store.getBooking(id)?.note).toContain('here it is');
+    err.mockRestore();
+  });
+
+  it('tick refunds when the platform reports a cancellation, and releases on completion', async () => {
+    const a = await placed({ status: async () => ({ status: 'cancelled' }) });
+    await a.h.svc.tick();
+    expect(a.h.status(a.id)).toBe('refunded');
+    const b = await placed({ status: async () => ({ status: 'completed' }) });
+    await b.h.svc.tick();
+    expect(b.h.status(b.id)).toBe('completed');
+    expect(b.h.store.getEscrowByBooking(b.id)?.status).toBe('released');
+  });
+});
