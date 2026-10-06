@@ -79,6 +79,15 @@ export interface BountyResult {
   submittedAt: Ms;
 }
 
+/** Outcome of the check run on a submission before the client sees it. */
+export interface QaVerdict {
+  ok: boolean;
+  /** Plain lines the worker can act on. Empty when ok. */
+  issues: string[];
+  by: 'rules' | 'llm' | 'operator';
+  at: Ms;
+}
+
 export interface BountyOffer {
   workerId: string;
   /** Secret in the worker's page link /w/:token. */
@@ -115,6 +124,10 @@ export interface Bounty {
   result?: BountyResult;
   /** Feedback from verification when a revision was asked. */
   feedback?: string;
+  /** Latest check of the submission. */
+  qa?: QaVerdict;
+  /** How many times the submission was sent back. */
+  revisions?: number;
   messages: BountyMessage[];
   payout?: { chain: 'cardano' | 'solana' | 'none'; address?: string; ref?: string; at: Ms };
   reason?: string;

@@ -1,7 +1,7 @@
 // The bounty board: registered workers, posted bounties and their lifecycle.
 //
-//   posted --claim--> claimed --submit--> submitted --verify--> verified --pay--> paid
-//     |                 |  ^                  |  \--revise--> claimed
+//   posted --claim--> claimed --submit--> submitted --verify (QA)--> verified --pay--> paid
+//     |                 |  ^                  |  \--revise (QA)--> claimed
 //     +--(claimBy)--> expired (stage claim)   +----reject---> rejected
 //                       +--(submitBy)--> expired (stage submit)
 //   any open state --cancel--> cancelled
@@ -18,7 +18,7 @@ import type { BountyStatus } from '../domain/types';
 import type { WorkerNoticeKind, WorkerNotifier } from './notifier';
 import { distanceKm } from './places';
 import { summarize, validateResult } from './spec';
-import type { Bounty, BountyMessage, BountyResult, BountySpec, GeoPoint, Worker } from './types';
+import type { Bounty, BountyMessage, BountyResult, BountySpec, GeoPoint, QaVerdict, Worker } from './types';
 
 /** Pays a worker their reward. The default only records it; a chain transfer can replace it. */
 export interface WorkerPayout {
@@ -96,7 +96,7 @@ const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export function createBountyBoard(deps: BoardDeps) {
   const { store, bus, config, notifier } = deps;
   const payout = deps.payout ?? createLedgerPayout();
-  const clock = deps.now ?? Date.now;
+  const clock = deps.now ?? (() => Date.now());
 
   const readJson = <T>(key: string): T | null => {
     const raw = store.getKv(key);
@@ -320,10 +320,16 @@ export function createBountyBoard(deps: BoardDeps) {
   }
 
   /** Verification asked for changes: back to the worker with the feedback and a fresh deadline. */
-  function requestRevision(bountyId: string, feedback: string): Outcome {
-    const res = transition(bountyId, 'claimed', { feedback, submitBy: clock() + config.BOUNTY_SUBMIT_MIN * 60_000 }, { from: ['submitted'] });
+  function requestRevision(bountyId: string, feedback: string, qa?: QaVerdict): Outcome {
+    const revisions = (get(bountyId)?.revisions ?? 0) + 1;
+    const res = transition(bountyId, 'claimed', { feedback, revisions, submitBy: clock() + config.BOUNTY_SUBMIT_MIN * 60_000, ...(qa && { qa }) }, { from: ['submitted'] });
     if (res.ok && res.bounty.workerId) tell(res.bounty.workerId, res.bounty, 'revision', `Please fix task ${res.bounty.code}: ${feedback}`);
     return res;
+  }
+
+  /** The submission passed the check: the client can now see it. Payment waits for acceptance. */
+  function verify(bountyId: string, qa: QaVerdict): Outcome {
+    return transition(bountyId, 'verified', { qa }, { from: ['submitted'] });
   }
 
   /** The submission passed verification: mark it, then pay the worker. */
@@ -332,7 +338,7 @@ export function createBountyBoard(deps: BoardDeps) {
     if (!b) return { ok: false, error: 'No such bounty' };
     if (b.status === 'paid') return { ok: true, bounty: b };
     if (b.status === 'submitted') {
-      const res = transition(bountyId, 'verified', {}, { from: ['submitted'] });
+      const res = transition(bountyId, 'verified', { qa: { ok: true, issues: [], by: 'operator', at: clock() } }, { from: ['submitted'] });
       if (!res.ok) return res;
       b = res.bounty;
     }
@@ -354,8 +360,8 @@ export function createBountyBoard(deps: BoardDeps) {
     }
   }
 
-  function reject(bountyId: string, reason: string): Outcome {
-    const res = transition(bountyId, 'rejected', {}, { from: ['submitted'], reason });
+  function reject(bountyId: string, reason: string, qa?: QaVerdict): Outcome {
+    const res = transition(bountyId, 'rejected', qa ? { qa } : {}, { from: ['submitted'], reason });
     if (res.ok && res.bounty.workerId) tell(res.bounty.workerId, res.bounty, 'rejected', `Task ${res.bounty.code} was not accepted: ${reason}`);
     return res;
   }
@@ -417,6 +423,7 @@ export function createBountyBoard(deps: BoardDeps) {
     claim,
     submit,
     requestRevision,
+    verify,
     verifyAndPay,
     reject,
     cancel,

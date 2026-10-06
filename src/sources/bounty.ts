@@ -104,9 +104,10 @@ export function createBountySource(deps: BountySourceDeps): FreelancerSource {
       switch (b.status) {
         case 'posted':
           return { status: 'placed' };
+        // A submission stays with the worker until it passes the check.
         case 'claimed':
-          return { status: 'in_progress' };
         case 'submitted':
+          return { status: 'in_progress' };
         case 'verified': {
           const r = b.result!;
           return {
