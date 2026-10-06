@@ -5,6 +5,7 @@
 
 import type { Express, Request, Response, NextFunction } from 'express';
 import { PublicKey } from '@solana/web3.js';
+import QRCode from 'qrcode';
 import type { EscrowProvider, Store } from '../domain/ports';
 
 export interface SolanaPayDeps {
@@ -27,6 +28,16 @@ export function mountSolanaPay(app: Express, deps: SolanaPayDeps): void {
   app.options('/solana-pay/escrow/:bookingId', (_req, res) => void res.sendStatus(204));
 
   app.get('/solana-pay/icon.svg', (_req, res) => void res.type('image/svg+xml').send(ICON));
+
+  // The deposit QR as a PNG, for a web page or a demo screen.
+  app.get('/solana-pay/qr/:bookingId.png', async (req, res) => {
+    const esc = store.getEscrowByBooking(String(req.params.bookingId));
+    if (!esc?.payUrl) {
+      res.status(404).json({ error: 'unknown booking' });
+      return;
+    }
+    res.type('image/png').send(await QRCode.toBuffer(esc.payUrl, { width: 480, margin: 2 }));
+  });
 
   app.get('/solana-pay/escrow/:bookingId', (_req, res) => {
     res.json({ label: 'HAAS escrow', icon: `${base}/solana-pay/icon.svg` });

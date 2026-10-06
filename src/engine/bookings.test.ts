@@ -4,7 +4,7 @@ import { createStore } from '../db/db';
 import { createEventBus } from '../domain/events';
 import type { ApprovalGate, EscrowProvider, FreelancerSource, SourceRegistry } from '../domain/ports';
 import type { BookingRequest, BookingResult, Candidate, EscrowRecord, HaasEvent, Job, PlatformBookingStatus } from '../domain/types';
-import { createBookingService } from './bookings';
+import { createBookingService, escrowDeadline, payeeFor } from './bookings';
 
 const job: Job = { id: 'j1', status: 'running', client: 'local', brief: { task: 'logo', skills: [], remoteOk: true, budgetUsd: 90 }, round: 1, createdAt: 1, updatedAt: 1 };
 const cand = (quoteUsd?: number): Candidate => ({
@@ -18,6 +18,7 @@ interface Opts {
   book?: (r: BookingRequest) => Promise<BookingResult>;
   noBook?: boolean;
   status?: () => Promise<PlatformBookingStatus>;
+  config?: Parameters<typeof testConfig>[0];
 }
 
 function setup(o: Opts = {}) {
@@ -38,9 +39,10 @@ function setup(o: Opts = {}) {
   const registry: SourceRegistry = { all: () => [source], enabled: () => [source], get: (n) => (n === source.name ? source : undefined), searchAll: async () => ({ profiles: [], sources: [] }) };
 
   let funded = o.funded ?? true;
+  const clock = { t: 1_000_000 };
   const escrow: EscrowProvider = {
     name: 'test', currency: 'USDC',
-    create: async ({ bookingId, amountUsd }) => ({ id: `es_${bookingId}`, bookingId, provider: 'test', status: funded ? 'funded' : 'awaiting_deposit', amount: amountUsd, currency: 'USDC', createdAt: 1, updatedAt: 1 }),
+    create: vi.fn(async ({ bookingId, amountUsd, payee, deadline }) => ({ id: `es_${bookingId}`, bookingId, provider: 'test', status: funded ? ('funded' as const) : ('awaiting_deposit' as const), amount: amountUsd, currency: 'USDC', payee, deadline, createdAt: clock.t, updatedAt: clock.t })),
     refresh: vi.fn(async (e: EscrowRecord) => ({ ...e, status: funded ? ('funded' as const) : e.status })),
     release: vi.fn(async (e: EscrowRecord) => ({ ...e, status: 'released' as const })),
     refund: vi.fn(async (e: EscrowRecord) => ({ ...e, status: 'refunded' as const })),
@@ -55,9 +57,9 @@ function setup(o: Opts = {}) {
     }),
     resolve: () => {},
   };
-  const svc = createBookingService({ store, bus, registry, escrow, gate, config: testConfig() });
+  const svc = createBookingService({ store, bus, registry, escrow, gate, config: testConfig(o.config), now: () => clock.t });
   const status = (id: string) => store.getBooking(id)!.status;
-  return { store, events, svc, source, escrow, gate, asked, order, status, fund: () => { funded = true; } };
+  return { store, events, svc, source, escrow, gate, asked, order, status, clock, fund: () => { funded = true; } };
 }
 
 describe('bookings.create', () => {
@@ -233,5 +235,153 @@ describe('bookings settle', () => {
     await b.h.svc.tick();
     expect(b.h.status(b.id)).toBe('completed');
     expect(b.h.store.getEscrowByBooking(b.id)?.status).toBe('released');
+  });
+});
+
+describe('escrow terms', () => {
+  const MIN = 60_000;
+  it('pays the worker wallet when published, else the operator; deadline = delivery window + grace', async () => {
+    const wallet = '9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM';
+    const h = setup({ funded: false });
+    const c = cand(50);
+    c.profile = { ...c.profile, solanaWallet: wallet };
+    const b = h.svc.create({ ...job, brief: { ...job.brief, deadlineDays: 3 } }, c);
+    await vi.waitFor(() => expect(h.store.getEscrowByBooking(b.id)).toBeTruthy());
+    expect(h.escrow.create).toHaveBeenCalledWith({ bookingId: b.id, amountUsd: 50, payee: wallet, deadline: h.clock.t + 3 * 1440 * MIN + 24 * 60 * MIN });
+    expect(h.store.getBooking(b.id)?.payeeWallet).toBe(wallet);
+
+    const b2 = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.store.getEscrowByBooking(b2.id)).toBeTruthy());
+    expect(vi.mocked(h.escrow.create).mock.calls[1]![0].payee).toBeUndefined();
+    expect(h.store.getBooking(b2.id)?.payeeWallet).toBeUndefined();
+  });
+
+  it('ignores malformed wallets and honours the demo deadline override', () => {
+    expect(payeeFor({ solanaWallet: 'not a wallet' } as never)).toBeUndefined();
+    expect(payeeFor(undefined)).toBeUndefined();
+    expect(escrowDeadline(testConfig({ ESCROW_DEADLINE_MIN: 5 }), { task: '', skills: [], remoteOk: true, deadlineDays: 9 }, 1000)).toBe(1000 + 5 * MIN);
+    expect(escrowDeadline(testConfig(), undefined, 0)).toBe(14 * 1440 * MIN + 24 * 60 * MIN);
+  });
+});
+
+describe('escrow timeouts', () => {
+  const MIN = 60_000;
+
+  it('cancels a booking whose deposit never arrived within the window, without calling refund', async () => {
+    const h = setup({ funded: false, config: { ESCROW_DEPOSIT_TIMEOUT_MIN: 30 } });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.store.getEscrowByBooking(b.id)).toBeTruthy());
+    h.clock.t += 29 * MIN;
+    await h.svc.tick();
+    expect(h.status(b.id)).toBe('pending_escrow');
+    h.clock.t += 2 * MIN;
+    await h.svc.tick();
+    expect(h.status(b.id)).toBe('cancelled');
+    expect(h.store.getEscrowByBooking(b.id)).toMatchObject({ status: 'failed', error: expect.stringContaining('30 min') });
+    expect(h.escrow.refund).not.toHaveBeenCalled();
+    const ev = h.events.find((e) => e.type === 'escrow.timeout');
+    expect(ev).toMatchObject({ type: 'escrow.timeout', kind: 'deposit_expired', booking: { id: b.id, status: 'cancelled' } });
+    await h.svc.tick(); // stays cancelled, nothing to refund
+    expect(h.status(b.id)).toBe('cancelled');
+    expect(h.escrow.refund).not.toHaveBeenCalled();
+  });
+
+  it('a deposit seen on the last tick before the window closes still wins', async () => {
+    const h = setup({ funded: false, config: { ESCROW_DEPOSIT_TIMEOUT_MIN: 30 } });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.store.getEscrowByBooking(b.id)).toBeTruthy());
+    h.clock.t += 31 * MIN;
+    h.fund();
+    await h.svc.tick();
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+  });
+
+  it('refunds a funded booking with no accepted delivery once the escrow deadline passes', async () => {
+    const h = setup({ config: { ESCROW_DEADLINE_MIN: 60 } });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+    h.clock.t += 59 * MIN;
+    await h.svc.tick();
+    expect(h.status(b.id)).toBe('placed');
+    h.clock.t += 2 * MIN;
+    await h.svc.tick();
+    expect(h.status(b.id)).toBe('refunded');
+    expect(h.escrow.refund).toHaveBeenCalledTimes(1);
+    expect(h.store.getEscrowByBooking(b.id)?.status).toBe('refunded');
+    expect(h.events.find((e) => e.type === 'escrow.timeout')).toMatchObject({ kind: 'delivery_expired', booking: { status: 'refunded' }, escrow: { status: 'refunded' } });
+  });
+
+  it('does not book when the deadline passed while the approval was pending', async () => {
+    let release!: (v: boolean) => void;
+    const h = setup({ config: { ESCROW_DEADLINE_MIN: 60 }, approve: () => new Promise<boolean>((r) => (release = r)) });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('awaiting_approval'));
+    h.clock.t += 61 * MIN;
+    await h.svc.tick(); // busy: skipped while the approval is open
+    release(true);
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('refunded'));
+    expect(h.source.book).not.toHaveBeenCalled();
+  });
+
+  it('refunds a rejected deposit (wrong amount or mint)', async () => {
+    const h = setup({ funded: false });
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.store.getEscrowByBooking(b.id)).toBeTruthy());
+    vi.mocked(h.escrow.refresh).mockImplementationOnce(async (e) => ({ ...e, status: 'failed', payer: 'hirer', error: 'deposit rejected: deposit is 1 USDC, expected 50' }));
+    await h.svc.tick();
+    expect(h.status(b.id)).toBe('refunded');
+    expect(h.store.getBooking(b.id)?.note).toContain('deposit rejected');
+  });
+});
+
+describe('releaseOnVerified', () => {
+  async function placed(o: Opts = {}) {
+    const h = setup(o);
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+    return { h, id: b.id };
+  }
+  const HASH = 'ab'.repeat(32);
+
+  it('asks the accept approval, accepts on the platform, completes and releases with the result hash', async () => {
+    const { h, id } = await placed();
+    const done = await h.svc.releaseOnVerified!(id, HASH);
+    expect(done.status).toBe('completed');
+    expect(h.asked).toEqual(['book', 'accept']);
+    expect(h.source.acceptDelivery).toHaveBeenCalledWith('ord1');
+    expect(h.escrow.release).toHaveBeenCalledWith(expect.objectContaining({ bookingId: id }), { resultHash: HASH });
+    expect(h.store.getEscrowByBooking(id)?.status).toBe('released');
+  });
+
+  it('skips the approval when preApproved, and does nothing when denied', async () => {
+    const a = await placed();
+    await a.h.svc.releaseOnVerified!(a.id, HASH, { preApproved: true });
+    expect(a.h.asked).toEqual(['book']);
+    const b = await placed();
+    vi.mocked(b.h.gate.request).mockResolvedValueOnce({ approved: false });
+    expect((await b.h.svc.releaseOnVerified!(b.id, HASH)).status).toBe('placed');
+    expect(b.h.escrow.release).not.toHaveBeenCalled();
+  });
+
+  it('refuses after the deadline and for bookings not yet placed', async () => {
+    const a = await placed({ config: { ESCROW_DEADLINE_MIN: 10 } });
+    a.h.clock.t += 11 * 60_000;
+    await expect(a.h.svc.releaseOnVerified!(a.id, HASH, { preApproved: true })).rejects.toThrow(/deadline/);
+    const h = setup({ funded: false });
+    const b = h.svc.create(job, cand(50));
+    await expect(h.svc.releaseOnVerified!(b.id, HASH)).rejects.toThrow(/pending_escrow/);
+  });
+
+  it('a failed release is retried by tick with the same result hash', async () => {
+    const { h, id } = await placed();
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(h.escrow.release).mockRejectedValueOnce(new Error('rpc down'));
+    const done = await h.svc.releaseOnVerified!(id, HASH, { preApproved: true });
+    expect(done.status).toBe('completed');
+    expect(h.store.getEscrowByBooking(id)?.status).toBe('funded');
+    await h.svc.tick();
+    expect(h.store.getEscrowByBooking(id)?.status).toBe('released');
+    expect(vi.mocked(h.escrow.release).mock.calls[1]![1]).toEqual({ resultHash: HASH });
+    err.mockRestore();
   });
 });
