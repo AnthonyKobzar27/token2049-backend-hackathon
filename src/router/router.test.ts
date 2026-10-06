@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { testConfig } from '../config';
 import { createEventBus } from '../domain/events';
-import type { Store } from '../domain/ports';
+import type { FreelancerSource, Store } from '../domain/ports';
 import type { Brief, FreelancerProfile, HaasEvent, SuitabilityScore } from '../domain/types';
 import { createFakeSource } from '../sources/fake';
 import { createRegistry } from '../sources/registry';
@@ -55,5 +55,42 @@ describe('router', () => {
     const second = await router.route(brief, { limit: 5, exclude: [top], feedback: 'cheaper please' });
     expect(second.candidates.map((c) => c.profile.id)).not.toContain(top);
     expect(notes.some((n) => n.includes('cheaper please'))).toBe(true);
+  });
+
+  it('answers within the overall budget when a source and the model are slow', async () => {
+    const cache = new Map<string, FreelancerProfile[]>();
+    const store = {
+      putProfiles: (s: string, k: string, p: FreelancerProfile[]) => void cache.set(`${s}|${k}`, p),
+      getCachedProfiles: (s: string, k: string) => cache.get(`${s}|${k}`) ?? null,
+      getSuitability: () => null,
+      putSuitability: () => {},
+    } as unknown as Store;
+    const config = testConfig({ SEARCH_BUDGET_MS: 400 });
+    const bus = createEventBus();
+    const events: HaasEvent[] = [];
+    bus.on((e) => events.push(e));
+    const slow: FreelancerSource = { name: 'slow', platform: 'slow', kind: 'api', isEnabled: () => true, search: () => new Promise((r) => setTimeout(() => r([]), 5_000)) };
+    const registry = createRegistry({ sources: [createFakeSource(), slow], store, bus, config });
+    const suitability = createSuitabilityScorer({ store, config }, () => new Promise((r) => setTimeout(() => r(new Map()), 5_000)));
+    const router = createRouter({ registry, suitability, bus, config });
+    const t0 = Date.now();
+    const r = await router.route(brief, { jobId: 'j', limit: 3 });
+    expect(Date.now() - t0).toBeLessThan(600);
+    expect(r.sources.find((s) => s.source === 'slow')!.late).toBe(true);
+    expect(r.candidates[0]!.profile.platformId).toMatch(/^errand-/);
+    expect(r.candidates[0]!.reason).toMatch(/^Matches /); // heuristic stood in for the slow model
+    const msgs = events.flatMap((e) => (e.type === 'job.progress' ? [e.message] : []));
+    expect(msgs).toContain('Ranking without slow (still searching)');
+    expect(events.filter((e) => e.type === 'source.done')).toHaveLength(2);
+  });
+
+  it('uses the in-person weights, so a nearby person outranks a better-rated one far away', async () => {
+    const { router } = setup();
+    const r = await router.route({ ...brief, location: 'Marina Bay, Singapore', when: { date: '2026-10-10', window: { start: '14:00', end: '17:00' } } }, { limit: 5 });
+    const top = r.candidates[0]!;
+    expect(top.profile.city).toBe('Singapore');
+    expect(top.subscores.location).toBeGreaterThan(0.5);
+    expect(top.subscores.timing).not.toBeUndefined();
+    expect(top.reason).toMatch(/km from|in Singapore|based in/);
   });
 });
