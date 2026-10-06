@@ -129,8 +129,11 @@ export interface SourceRegistry {
    * (config.SOURCE_TIMEOUT_MS), using the profile cache (config.PROFILE_CACHE_TTL_MIN).
    * A failing source yields a SourceStatus with ok=false and, when available,
    * stale cached profiles; it never rejects the whole search.
+   * With `budgetMs` (default config.SEARCH_BUDGET_MS) it answers within that time: expired
+   * cache is served at once while a refresh runs, and a source still searching is marked
+   * `late` and keeps going in the background to fill the cache.
    */
-  searchAll(brief: Brief, opts: { limitPerSource: number; jobId?: string }): Promise<{ profiles: FreelancerProfile[]; sources: SourceStatus[] }>;
+  searchAll(brief: Brief, opts: { limitPerSource: number; jobId?: string; budgetMs?: number }): Promise<{ profiles: FreelancerProfile[]; sources: SourceStatus[] }>;
 }
 
 // ------------------------------------------------------------------ router
@@ -138,7 +141,7 @@ export interface SourceRegistry {
 /** src/router/suitability.ts: `createSuitabilityScorer(deps: { store: Store; config: Config }): SuitabilityScorer` */
 export interface SuitabilityScorer {
   /** Scores every profile against the brief. Cached per (brief, profile). Returns a map by profile id; missing entries mean unknown. */
-  score(brief: Brief, profiles: FreelancerProfile[]): Promise<Map<string, SuitabilityScore>>;
+  score(brief: Brief, profiles: FreelancerProfile[], opts?: { budgetMs?: number }): Promise<Map<string, SuitabilityScore>>;
 }
 
 /** src/router/router.ts: `createRouter(deps: { registry: SourceRegistry; suitability: SuitabilityScorer; bus: EventBus; config: Config }): Router` */

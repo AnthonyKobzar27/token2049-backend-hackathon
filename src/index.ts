@@ -31,8 +31,8 @@ const sources: FreelancerSource[] = [
   createRentAHumanSource(config),
   ...createBrowserSources({ config, bus }),
 ];
-// Fixtures only on request, so they never mix into real results.
-if (config.SOURCES?.split(',').map((s) => s.trim()).includes('fake')) sources.push(createFakeSource());
+// Fixtures only on request (or on stage, as an always-warm floor), so they never mix into real results.
+if (config.DEMO_MODE || config.SOURCES?.split(',').map((s) => s.trim()).includes('fake')) sources.push(createFakeSource());
 
 const registry = createRegistry({ sources, store, bus, config });
 const suitability = createSuitabilityScorer({ store, config });
@@ -64,6 +64,7 @@ const poller = createPoller({
 const server = app.listen(config.PORT, () => {
   console.log(`[haas] listening on ${config.PUBLIC_URL} (port ${config.PORT})`);
   console.log(`[haas] sources: ${registry.enabled().map((s) => s.name).join(', ') || 'none enabled'}`);
+  if (config.DEMO_MODE) console.log(`[haas] demo mode: pinned cache, ${config.DEMO_BUDGET_MS} ms budget (warm it with pnpm demo:warm)`);
   console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO || config.X402_SOLANA_PAY_TO ? 'on' : 'off'}`);
 });
 masumi.start();

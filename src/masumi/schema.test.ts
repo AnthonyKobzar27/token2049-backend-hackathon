@@ -51,3 +51,18 @@ describe('check-in', () => {
     expect(parseCheckIn({ choice: 'fake:1' }, null)).toMatchObject({ ok: false });
   });
 });
+
+describe('brief day/time and place fields', () => {
+  it('accepts when, radius and task type, and reads a time from the task text', () => {
+    const r = parseBrief({ task: 'Hand out flyers', location: 'Singapore', remote_ok: 'false', when: '2026-10-10 14:00-17:00', radius_km: '10', task_type: 'in_person' });
+    if (!r.ok) throw new Error(r.errors.join());
+    expect(r.value.when).toEqual({ date: '2026-10-10', window: { start: '14:00', end: '17:00' } });
+    expect(r.value.radiusKm).toBe(10);
+    expect(r.value.taskType).toBe('in_person');
+    const t = parseBrief({ task: 'Pick up a parcel in Orchard tomorrow at 3pm', remote_ok: false });
+    if (!t.ok) throw new Error(t.errors.join());
+    expect(t.value.location).toBe('Orchard');
+    expect(t.value.when?.window).toEqual({ start: '15:00', end: '17:00' });
+    expect(t.value.when?.timezone).toBe('Asia/Singapore');
+  });
+});

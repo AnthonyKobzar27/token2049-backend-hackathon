@@ -12,6 +12,7 @@
     "spike:x402": "tsx scripts/x402-spike.ts",
     "spike:solana": "tsx scripts/solana-spike.ts",
     "smoke:browser": "tsx scripts/browser-smoke.ts",
+    "demo:warm": "tsx scripts/demo-warm.ts",
     "register:agent": "tsx scripts/register-agent.ts",
     "sokosumi:worker": "tsx scripts/sokosumi-worker.ts"
   },

@@ -168,7 +168,7 @@ describe('MIP-003 routes, unpaid mode', () => {
     expect((await req('GET', '/availability')).body).toEqual({ status: 'available', type: 'masumi-agent', message: expect.any(String) });
     const schema = (await req('GET', '/input_schema')).body;
     expect(Object.keys(schema)).toEqual(['input_data']);
-    expect(schema.input_data.map((f: any) => f.id)).toEqual(['task', 'skills', 'budget_usd', 'deadline_days', 'location', 'remote_ok', 'hours_needed', 'language', 'timezone', 'notes']);
+    expect(schema.input_data.map((f: any) => f.id)).toEqual(['task', 'skills', 'budget_usd', 'deadline_days', 'location', 'remote_ok', 'hours_needed', 'language', 'timezone', 'notes', 'when', 'radius_km', 'task_type']);
     for (const f of schema.input_data) expect(['string', 'number', 'boolean', 'option', 'none']).toContain(f.type);
     const demo = (await req('GET', '/demo')).body;
     expect(demo.input.task).toEqual(expect.any(String));

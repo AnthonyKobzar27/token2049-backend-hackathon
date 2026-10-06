@@ -1,13 +1,16 @@
 // Pure, deterministic matching: quote, hard filters, subscores, score, explanation, rank.
 
-import type { Brief, Candidate, FreelancerProfile, Subscores, SuitabilityScore } from '../domain/types';
-import { matchPlace } from './geo';
+import type { Brief, Candidate, FreelancerProfile, Ms, Subscores, SuitabilityScore } from '../domain/types';
+import { distanceKm, matchPlace, placeLabel, profilePlace, profileTimezone, resolvePlace } from './geo';
+import { DEFAULT_WEIGHTS, type Weights } from './weights';
+import { timingPhrase, timingScore } from './when';
 
 const BUDGET_TOLERANCE = 1.1;
 const PRIOR_MEAN = 4.5;
 const PRIOR_WEIGHT = 10;
 const UNKNOWN_PENALTY = 2;
-const WEIGHTS: Record<keyof Subscores, number> = { suitability: 0.45, price: 0.2, rating: 0.15, availability: 0.1, speed: 0.1 };
+/** On-site work: default distance from a named city within which people are kept. */
+export const DEFAULT_RADIUS_KM = 50;
 
 const clamp01 = (n: number): number => Math.min(1, Math.max(0, n));
 const median = (xs: number[]): number | null => {
@@ -60,15 +63,67 @@ export function dropReason(brief: Brief, profile: FreelancerProfile, q: Quote = 
     if (!profile.languages.some((l) => l.toLowerCase() === want)) return 'language';
   }
 
-  if (brief.remoteOk === false && brief.location && (profile.country || profile.city)) {
-    if (matchPlace(brief.location, profile) === 'elsewhere') return 'location';
-  }
+  if (locationFit(brief, profile).drop) return 'location';
 
   const hpw = profile.availability?.hoursPerWeek;
   if (brief.hoursNeeded !== undefined && brief.deadlineDays !== undefined && hpw !== undefined) {
     if (hpw * (brief.deadlineDays / 7) < brief.hoursNeeded) return 'not enough hours';
   }
   return null;
+}
+
+// --------------------------------------------------------------- location
+
+export interface LocationFit {
+  /** Undefined when the brief states no place (the dimension does not count). */
+  score: number | null | undefined;
+  /** Known to be out of reach for on-site work. */
+  drop: boolean;
+  km?: number;
+  phrase?: string;
+}
+
+/**
+ * On-site: distance from the brief's place (city-level when both are known), dropping only
+ * beyond the radius or in another country. Remote: a soft preference for the same country or
+ * overlapping hours. Unknown is null, never a drop.
+ */
+export function locationFit(brief: Brief, profile: FreelancerProfile): LocationFit {
+  if (!brief.location) return { score: undefined, drop: false };
+  const target = resolvePlace(brief.location);
+  const where = profilePlace(profile);
+  const known = !!(profile.country || profile.city);
+
+  if (brief.remoteOk === false) {
+    const radius = brief.radiusKm ?? DEFAULT_RADIUS_KM;
+    if (target?.precision === 'city' && where?.precision === 'city') {
+      const km = distanceKm(target, where);
+      if (km > radius) return { score: 0, drop: true, km };
+      const score = km <= 5 ? 1 : Math.max(0.4, 1 - 0.6 * (km / radius));
+      const phrase = km < 2 ? `in ${placeLabel(target)}` : `about ${Math.round(km)} km from ${placeLabel(target)}`;
+      return { score, drop: false, km, phrase };
+    }
+    if (!known) return { score: null, drop: false };
+    const m = matchPlace(brief.location, profile);
+    if (m === 'elsewhere') return { score: 0, drop: true };
+    if (m === 'match') {
+      // Same country (or a city we cannot place): close enough to keep, not as good as a known distance.
+      const label = profile.city ?? (where ? placeLabel(where) : profile.country!);
+      return { score: where?.precision === 'city' ? 0.85 : 0.7, drop: false, phrase: `based in ${label}` };
+    }
+    if (target && where && target.country !== where.country && where.precision === 'country') return { score: 0, drop: true };
+    return { score: null, drop: false };
+  }
+
+  // Remote: a gentle nudge toward the stated country or region.
+  if (!known) return { score: null, drop: false };
+  if (target && where) {
+    if (target.country === where.country) return { score: 1, drop: false, phrase: `based in ${profile.city ?? placeLabel(where)}` };
+    const overlap = workingOverlapHours(target.timezone, profileTimezone(profile) ?? where.timezone);
+    return { score: overlap === null ? 0.4 : 0.3 + 0.6 * (overlap / 9), drop: false };
+  }
+  const m = matchPlace(brief.location, profile);
+  return m === 'match' ? { score: 1, drop: false } : m === 'elsewhere' ? { score: 0.4, drop: false } : { score: null, drop: false };
 }
 
 // -------------------------------------------------------------- subscores
@@ -78,9 +133,9 @@ export interface SetContext {
   medianDelivery: number | null;
 }
 
-function offsetHours(tz: string): number | null {
+function offsetHours(tz: string, at: Ms = Date.UTC(2026, 0, 15, 12)): number | null {
   try {
-    const ref = new Date(Date.UTC(2026, 0, 15, 12));
+    const ref = new Date(at);
     const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' }).formatToParts(ref);
     const g = (t: string): number => Number(parts.find((p) => p.type === t)?.value);
     return (Date.UTC(g('year'), g('month') - 1, g('day'), g('hour'), g('minute')) - ref.getTime()) / 3_600_000;
@@ -89,10 +144,10 @@ function offsetHours(tz: string): number | null {
   }
 }
 
-/** Hours of overlap between two 09:00-18:00 working days. */
-export function workingOverlapHours(tzA: string, tzB: string): number | null {
-  const a = offsetHours(tzA);
-  const b = offsetHours(tzB);
+/** Hours of overlap between two 09:00-18:00 working days (on a given date when `at` is set, for DST). */
+export function workingOverlapHours(tzA: string, tzB: string, at?: Ms): number | null {
+  const a = offsetHours(tzA, at);
+  const b = offsetHours(tzB, at);
   if (a === null || b === null) return null;
   let shift = Math.abs(a - b) % 24;
   if (shift > 12) shift = 24 - shift;
@@ -111,20 +166,22 @@ export function ratingScore(rating: number | undefined, reviews: number | undefi
 function availabilityScore(brief: Brief, profile: FreelancerProfile): number | null {
   const a = profile.availability;
   const parts: number[] = [];
+  if (a?.accepting !== undefined) parts.push(a.accepting ? 1 : 0.2);
   if (a?.online !== undefined) parts.push(a.online ? 1 : 0.4);
   if (a?.responseHours !== undefined) {
     const h = a.responseHours;
     parts.push(h <= 1 ? 1 : h <= 4 ? 0.85 : h <= 12 ? 0.65 : h <= 24 ? 0.5 : h <= 72 ? 0.25 : 0.1);
   }
   if (a?.hoursPerWeek !== undefined) parts.push(clamp01(a.hoursPerWeek / 30));
-  if (brief.timezone && profile.timezone) {
-    const overlap = workingOverlapHours(brief.timezone, profile.timezone);
+  const theirZone = profileTimezone(profile);
+  if (brief.timezone && theirZone) {
+    const overlap = workingOverlapHours(brief.timezone, theirZone);
     if (overlap !== null) parts.push(clamp01(overlap / 6));
   }
   return parts.length === 0 ? null : parts.reduce((x, y) => x + y, 0) / parts.length;
 }
 
-export function subscores(brief: Brief, profile: FreelancerProfile, q: Quote, ctx: SetContext, suit?: SuitabilityScore): Subscores {
+export function subscores(brief: Brief, profile: FreelancerProfile, q: Quote, ctx: SetContext, suit?: SuitabilityScore, now: Ms = Date.now()): Subscores {
   let price: number | null = null;
   if (q.quoteUsd !== undefined) {
     if (brief.budgetUsd !== undefined && brief.budgetUsd > 0) price = clamp01(1 - 0.8 * (q.quoteUsd / brief.budgetUsd));
@@ -136,26 +193,36 @@ export function subscores(brief: Brief, profile: FreelancerProfile, q: Quote, ct
     if (brief.deadlineDays !== undefined && brief.deadlineDays > 0) speed = clamp01(1 - 0.7 * (days / brief.deadlineDays));
     else if (ctx.medianDelivery !== null && ctx.medianDelivery > 0) speed = clamp01(1 - 0.5 * (days / ctx.medianDelivery));
   }
-  return {
+  const out: Subscores = {
     suitability: suit ? clamp01(suit.score) : null,
     price,
     rating: ratingScore(profile.rating, profile.reviewCount),
     availability: availabilityScore(brief, profile),
     speed,
   };
+  const loc = locationFit(brief, profile).score;
+  if (loc !== undefined) out.location = loc === null ? null : clamp01(loc);
+  const timing = timingScore(brief, profile, now);
+  if (timing !== undefined) out.timing = timing;
+  return out;
 }
 
-/** 0-100: weighted mean over known subscores, minus a small penalty per unknown one. */
-export function totalScore(s: Subscores): number {
+/**
+ * 0-100: weighted mean over known subscores, minus a small penalty per unknown one.
+ * Absent (undefined) dimensions and zero weights do not count at all.
+ */
+export function totalScore(s: Subscores, weights: Weights = DEFAULT_WEIGHTS): number {
   let sum = 0;
   let w = 0;
   let unknown = 0;
-  for (const k of Object.keys(WEIGHTS) as (keyof Subscores)[]) {
+  for (const k of Object.keys(weights) as (keyof Subscores)[]) {
     const v = s[k];
+    const wk = weights[k];
+    if (v === undefined || !(wk > 0)) continue;
     if (v === null) unknown++;
     else {
-      sum += v * WEIGHTS[k];
-      w += WEIGHTS[k];
+      sum += v * wk;
+      w += wk;
     }
   }
   let total = w > 0 ? (sum / w) * 100 - unknown * UNKNOWN_PENALTY : 0;
@@ -165,13 +232,17 @@ export function totalScore(s: Subscores): number {
 
 // ------------------------------------------------------------ explanation
 
-export function explain(brief: Brief, profile: FreelancerProfile, q: Quote, suit?: SuitabilityScore): { reason: string; unknowns: string[] } {
+export function explain(brief: Brief, profile: FreelancerProfile, q: Quote, suit?: SuitabilityScore, now: Ms = Date.now()): { reason: string; unknowns: string[] } {
   const parts: string[] = [];
   const src = profile.platform;
   const unknowns: string[] = [];
   const pr = chosenPricing(profile, q);
 
   if (suit?.reason) parts.push(suit.reason.trim().replace(/[.\s]+$/, ''));
+  const loc = locationFit(brief, profile);
+  if (loc.phrase) parts.push(loc.phrase);
+  const when = timingPhrase(brief, profile, now);
+  if (when) parts.push(when);
   if (pr) {
     let s = pr.kind === 'fixed' ? `${money(pr.amountUsd)} fixed` : `${money(pr.amountUsd)}/h`;
     if (pr.kind === 'hourly' && q.quoteUsd !== undefined && brief.hoursNeeded !== undefined) s += ` (about ${money(q.quoteUsd)} for ${brief.hoursNeeded}h)`;
@@ -193,6 +264,7 @@ export function explain(brief: Brief, profile: FreelancerProfile, q: Quote, suit
   if (rh === undefined) unknowns.push(`response time not published on ${src}`);
   if (pr && pr.deliveryDays === undefined) unknowns.push(`delivery time not published on ${src}`);
   if (brief.location && brief.remoteOk === false && !profile.country && !profile.city) unknowns.push(`location not published on ${src}`);
+  if (brief.when && (brief.when.date || brief.when.window) && !profileTimezone(profile)) unknowns.push(`time zone and working hours not published on ${src}`);
   if (brief.language && (!profile.languages || profile.languages.length === 0)) unknowns.push(`languages not published on ${src}`);
 
   const text = parts.length > 0 ? parts.join('; ') : 'Limited information published';
@@ -204,10 +276,15 @@ export function explain(brief: Brief, profile: FreelancerProfile, q: Quote, suit
 export interface RankOptions {
   limit: number;
   exclude?: string[];
+  /** Per task type, see weights.ts. Defaults to the general remote weights. */
+  weights?: Weights;
+  /** Clock for day/time scoring (tests). */
+  now?: Ms;
 }
 
 /** Hard-filters, scores, explains and orders profiles; at most ceil(limit*0.6) per platform while others remain. */
 export function rank(brief: Brief, profiles: FreelancerProfile[], suitability: Map<string, SuitabilityScore>, opts: RankOptions): Candidate[] {
+  const now = opts.now ?? Date.now();
   const excluded = new Set(opts.exclude ?? []);
   const seen = new Set<string>();
   const kept: { profile: FreelancerProfile; q: Quote }[] = [];
@@ -225,9 +302,9 @@ export function rank(brief: Brief, profiles: FreelancerProfile[], suitability: M
 
   const scored: Candidate[] = kept.map(({ profile, q }) => {
     const suit = suitability.get(profile.id);
-    const sub = subscores(brief, profile, q, ctx, suit);
-    const { reason, unknowns } = explain(brief, profile, q, suit);
-    const c: Candidate = { profile, score: totalScore(sub), subscores: sub, reason, unknowns };
+    const sub = subscores(brief, profile, q, ctx, suit, now);
+    const { reason, unknowns } = explain(brief, profile, q, suit, now);
+    const c: Candidate = { profile, score: totalScore(sub, opts.weights), subscores: sub, reason, unknowns };
     if (q.quoteUsd !== undefined) c.quoteUsd = q.quoteUsd;
     if (q.pricingIndex !== undefined) c.pricingIndex = q.pricingIndex;
     return c;

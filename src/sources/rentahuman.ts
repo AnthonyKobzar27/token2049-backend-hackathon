@@ -48,6 +48,18 @@ function weeklyHours(avail: RawHuman['availability']): number | undefined {
   return total > 0 ? Math.round(total * 10) / 10 : undefined;
 }
 
+function availabilityOf(h: RawHuman, hours: number | undefined): FreelancerProfile['availability'] {
+  const out: NonNullable<FreelancerProfile['availability']> = {};
+  if (hours !== undefined) out.hoursPerWeek = hours;
+  if (hours !== undefined && h.availability) {
+    const schedule: Record<string, { start: string; end: string }[]> = {};
+    for (const [day, windows] of Object.entries(h.availability)) if (windows?.length) schedule[day.toLowerCase()] = windows.map((w) => ({ start: w.start, end: w.end }));
+    out.schedule = schedule;
+  }
+  if (typeof h.isAvailable === 'boolean') out.accepting = h.isAvailable;
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Pure: one RentAHuman human to our profile. */
 export function normaliseHuman(h: RawHuman, fetchedAt: Ms = Date.now()): FreelancerProfile {
   const pricing: Pricing[] = [];
@@ -75,7 +87,7 @@ export function normaliseHuman(h: RawHuman, fetchedAt: Ms = Date.now()): Freelan
     // "UTC" is the profile default, not a statement about where the person works.
     timezone: h.timezone && h.timezone !== 'UTC' ? h.timezone : undefined,
     languages: languages.length ? languages : undefined,
-    availability: hours !== undefined ? { hoursPerWeek: hours } : undefined,
+    availability: availabilityOf(h, hours),
     pricing,
     // A zero rating with no reviews means unrated.
     rating: reviews && reviews > 0 && h.rating ? h.rating : undefined,
