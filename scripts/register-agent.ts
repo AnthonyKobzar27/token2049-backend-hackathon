@@ -1,11 +1,44 @@
-// Registers the HAAS agent in the Masumi registry (POST /registry), waits for the mint, prints .env values.
-// Usage: pnpm register:agent   (needs MASUMI_API_KEY with Read+Pay, PUBLIC_URL as an HTTPS URL, funded selling wallet)
+// Registers the HAAS agent in the Masumi registry (POST /registry), waits for the mint, prints every value the
+// TOKEN2049 submission and the .env need.
+// Usage: pnpm register:agent [--dry-run]
+//   needs MASUMI_API_KEY with Read+Pay, PUBLIC_URL as an HTTPS URL, a funded selling wallet with collateral.
+//   --dry-run prints the request body and sends nothing.
+// Pricing: V2 sources register {"pricingType":"Dynamic"} and nothing else (the TOKEN2049 guide); each payment request
+// then carries the quote, 1 test USDM by default (MASUMI_PRICE_AMOUNT of MASUMI_PRICE_UNIT). V1 sources have no
+// Dynamic pricing here and register that quote as a Fixed price.
+// Optional: REGISTER_AUTHOR_NAME, REGISTER_AUTHOR_EMAIL, REGISTER_AUTHOR_ORGANIZATION, REGISTER_AUTHOR_CONTACT.
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { loadConfig } from '../src/config';
+import { formatAmount, normalizeUnit, quoteFee } from '../src/masumi/pricing';
 
 const config = loadConfig();
 const base = config.MASUMI_API_URL.replace(/\/+$/, '');
-const priceLovelace = process.env.REGISTER_PRICE_LOVELACE ?? '3000000';
+const dryRun = process.argv.includes('--dry-run');
+const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
+const quote = quoteFee(undefined, config);
+const publicUrl = config.PUBLIC_URL.replace(/\/+$/, '');
+
+const env = (k: string) => process.env[k]?.trim() || undefined;
+const author = {
+  name: env('REGISTER_AUTHOR_NAME') ?? 'HAAS team',
+  ...(env('REGISTER_AUTHOR_EMAIL') ? { contactEmail: env('REGISTER_AUTHOR_EMAIL') } : {}),
+  ...(env('REGISTER_AUTHOR_CONTACT') ? { contactOther: env('REGISTER_AUTHOR_CONTACT') } : {}),
+  ...(env('REGISTER_AUTHOR_ORGANIZATION') ? { organization: env('REGISTER_AUTHOR_ORGANIZATION') } : {}),
+};
+
+const metadata = {
+  name: 'HAAS: Human as a Service',
+  description:
+    'Hire a human freelancer for any task an AI cannot do. Send a brief; get a ranked shortlist from Freelancer.com, RentAHuman, Fiverr and more, ' +
+    'with price, location, time zone and track record; confirm one and it is booked after your approval.',
+  apiBaseUrl: publicUrl,
+  Tags: ['human-in-the-loop', 'hire-human', 'freelancer', 'real-world-tasks', 'verification'],
+  // MIP-003 /demo serves a sample input and output.
+  ExampleOutputs: [{ name: 'Sample brief and booking result (MIP-003 /demo)', url: `${publicUrl}/demo`, mimeType: 'application/json' }],
+  Capability: { name: 'haas', version },
+  Author: author,
+};
 
 async function api<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${base}${path}`, {
@@ -55,6 +88,7 @@ async function main() {
   if (!vkey) throw new Error('no selling wallet found; set MASUMI_SELLER_VKEY');
 
   // V2 sources carry their own pricing; V1 uses AgentPricing. The API forbids the other one.
+  // Dynamic: exactly {"pricingType":"Dynamic"}; extra keys get the registration rejected.
   const pricing = v2
     ? {
         supportedPaymentSources: [
@@ -63,28 +97,19 @@ async function main() {
             network: config.MASUMI_NETWORK,
             paymentSourceType: 'Web3CardanoV2',
             address: src.smartContractAddress,
-            pricing: { pricingType: 'Fixed', fixed: [{ asset: 'lovelace', amount: priceLovelace, decimals: 6 }] },
+            pricing: { pricingType: 'Dynamic' },
           },
         ],
       }
-    : { AgentPricing: { pricingType: 'Fixed', Pricing: [{ unit: '', amount: priceLovelace }] } };
+    : { AgentPricing: { pricingType: 'Fixed', Pricing: [{ unit: normalizeUnit(quote.unit), amount: quote.amount }] } };
 
-  const created = entry.parse(
-    (
-      await api<{ data: unknown }>('POST', '/registry', {
-        network: config.MASUMI_NETWORK,
-        sellingWalletVkey: vkey,
-        name: 'HAAS: Human as a Service',
-        description: 'Open router for freelancers: describe the work, get a ranked shortlist across platforms, confirm one, and it is booked.',
-        apiBaseUrl: config.PUBLIC_URL,
-        Tags: ['freelancers', 'hiring', 'marketplace', 'human-in-the-loop'],
-        ExampleOutputs: [],
-        Capability: { name: 'haas', version: '0.1.0' },
-        Author: { name: 'HAAS' },
-        ...pricing,
-      })
-    ).data,
-  );
+  const body = { network: config.MASUMI_NETWORK, sellingWalletVkey: vkey, ...metadata, ...pricing };
+  if (dryRun) {
+    console.log(JSON.stringify(body, null, 2));
+    console.log(`\ndry run: nothing sent. Quote per job: ${formatAmount(quote)} (${quote.amount} of unit ${quote.unit || 'lovelace'})`);
+    return;
+  }
+  const created = entry.parse((await api<{ data: unknown }>('POST', '/registry', body)).data);
   console.log(`registration requested: ${created.id} (${created.state}); waiting for the mint, this can take several minutes`);
 
   const started = Date.now();
@@ -97,13 +122,36 @@ async function main() {
     console.log(`  ${secs}s: ${mine?.state ?? 'not listed yet'}`);
     if (mine?.state === 'RegistrationFailed') throw new Error(`registration failed: ${mine.error ?? 'no reason given'}`);
     if (mine?.agentIdentifier) {
-      console.log('\nPut these in ~/.haas/.env:\n');
-      console.log(`PUBLIC_URL=${config.PUBLIC_URL}`);
+      const sellerVkey = mine.SmartContractWallet?.walletVkey ?? vkey;
+      console.log(`\nRegistered: ${mine.state}\n`);
+      console.log('Submission values:');
+      console.log(`  Masumi agent identifier   ${mine.agentIdentifier}`);
+      console.log(`  Registry entry id         ${created.id}`);
+      console.log(`  Policy id                 ${mine.agentIdentifier.slice(0, 56)}`);
+      console.log(`  Network                   ${config.MASUMI_NETWORK}`);
+      console.log(`  Payment source            ${src.id} (${src.paymentSourceType}), supported source index 0`);
+      console.log(`  Smart contract address    ${src.smartContractAddress}`);
+      console.log(`  Seller wallet vkey        ${sellerVkey}`);
+      console.log(`  Pricing                   ${v2 ? '{"pricingType":"Dynamic"}' : 'Fixed'}, quoted ${formatAmount(quote)} per job`);
+      console.log(`  Asset unit                ${quote.unit || 'lovelace (ADA)'}`);
+      console.log(`  Agent API (apiBaseUrl)    ${publicUrl}`);
+      console.log(`  Tags                      ${metadata.Tags.join(', ')}`);
+      console.log(`  Capability                ${metadata.Capability.name} ${metadata.Capability.version}`);
+      console.log(`  Example output            ${metadata.ExampleOutputs[0]!.url}`);
+      console.log(`  Author                    ${JSON.stringify(author)}`);
+      console.log('  Seller address            admin UI > Wallets > Selling (not returned here)');
+      console.log('\nPut these in ~/.haas/.env (or the Railway variables):\n');
+      console.log(`PUBLIC_URL=${publicUrl}`);
       console.log(`MASUMI_API_URL=${config.MASUMI_API_URL}`);
       console.log('MASUMI_API_KEY=<the key you used>');
       console.log(`MASUMI_NETWORK=${config.MASUMI_NETWORK}`);
       console.log(`MASUMI_AGENT_IDENTIFIER=${mine.agentIdentifier}`);
-      console.log(`MASUMI_SELLER_VKEY=${mine.SmartContractWallet?.walletVkey ?? vkey}`);
+      console.log(`MASUMI_SELLER_VKEY=${sellerVkey}`);
+      console.log(`MASUMI_PRICING_TYPE=${v2 ? 'Dynamic' : 'Fixed'}`);
+      if (v2) {
+        console.log('MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX=0');
+        console.log(`MASUMI_SMART_CONTRACT_ADDRESS=${src.smartContractAddress}`);
+      }
       return;
     }
     if (secs > 30 * 60) throw new Error('timed out after 30 minutes; check the registry in the admin UI');
