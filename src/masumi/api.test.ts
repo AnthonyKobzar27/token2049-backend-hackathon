@@ -300,8 +300,9 @@ describe('paid mode', () => {
     expect(r.body.payByTime).toBeLessThan(r.body.submitResultTime);
     expect(r.body.submitResultTime).toBeLessThan(r.body.unlockTime);
     expect(r.body.unlockTime).toBeLessThan(r.body.externalDisputeUnlockTime);
-    // Generous result window for the human check-in (8 h by default).
-    expect(r.body.submitResultTime - Date.now()).toBeGreaterThan(7.9 * 3_600_000);
+    // Short default windows: a 60 min result window (room for the human check-in), unlock 16 min later.
+    expect(r.body.submitResultTime - Date.now()).toBeGreaterThan(59 * 60_000);
+    expect(r.body.unlockTime - r.body.submitResultTime).toBe(16 * 60_000);
 
     const created = ps.log.find((l) => l.path === '/payment')!;
     expect(created.token).toBe('k');

@@ -45,12 +45,12 @@ export const windowsFromConfig = (
   disputeDelayMin: c.MASUMI_DISPUTE_DELAY_MIN,
 });
 
-export const DEFAULT_WINDOWS: Windows = { payMin: 60, resultMin: 480, unlockDelayMin: 20, disputeDelayMin: 20 };
+export const DEFAULT_WINDOWS: Windows = { payMin: 20, resultMin: 60, unlockDelayMin: 16, disputeDelayMin: 16 };
 
 /**
  * Deadlines for a new payment, clamped to what the payment service accepts (result >= now+15m, pay <= result-5m,
  * unlock >= result+15m, dispute >= unlock+15m). The result window has to cover routing, the human check-in (the
- * clock does not pause during awaiting_input) and the booking, so it defaults to 8 hours.
+ * clock does not pause during awaiting_input) and the booking: 60 minutes by default (MASUMI_RESULT_WINDOW_MIN).
  */
 export function defaultTimes(now: Ms, w: Windows = DEFAULT_WINDOWS): PaymentTimes {
   const submitResultTime = now + Math.max(w.resultMin, 20) * MIN;
@@ -80,6 +80,8 @@ export interface CreatePaymentInput {
   /** Required for Dynamic pricing, ignored for Fixed. */
   amounts?: Amount[];
   metadata?: string;
+  /** Deadlines for this payment; default: the MASUMI_* windows. */
+  windows?: Windows;
 }
 
 export interface PaymentClient {
@@ -210,8 +212,8 @@ export function createPaymentClient(config: Config, opts: { fetch?: Fetch; now?:
   };
 
   return {
-    async createPayment({ inputHash, identifierFromPurchaser, amounts, metadata }) {
-      const t = defaultTimes(now(), windowsFromConfig(config));
+    async createPayment({ inputHash, identifierFromPurchaser, amounts, metadata, windows }) {
+      const t = defaultTimes(now(), windows ?? windowsFromConfig(config));
       const fallback: Hints =
         config.MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX !== undefined
           ? { paymentSourceType: 'Web3CardanoV2', supportedPaymentSourceIndex: config.MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX }

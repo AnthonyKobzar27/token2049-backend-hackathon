@@ -73,11 +73,18 @@ const schema = z.object({
   MASUMI_PRICE_MAX_AMOUNT: z.string().regex(/^[1-9]\d{0,18}$/).default('25000000'),
   /** Index of our Cardano source in the registry entry; unset means look it up. */
   MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).max(24).optional()),
-  /** Payment deadlines, in minutes. The result window covers search, the check-in and the booking: it does not pause while a human answers. */
-  MASUMI_PAY_WINDOW_MIN: int(60),
-  MASUMI_RESULT_WINDOW_MIN: int(480),
-  MASUMI_UNLOCK_DELAY_MIN: int(20),
-  MASUMI_DISPUTE_DELAY_MIN: int(20),
+  /**
+   * Payment deadlines for MIP-003 jobs, in minutes, near the payment service minimums (result >= now+15m,
+   * pay <= result-5m, unlock >= result+15m, dispute >= unlock+15m; we keep 1 minute of slack on the last two).
+   * The result window covers search, the human check-in and the booking: it does not pause while a human
+   * answers, so 60 minutes leaves ~40 for the check-in. Defaults: collection ~76 min after start.
+   */
+  MASUMI_PAY_WINDOW_MIN: int(20),
+  MASUMI_RESULT_WINDOW_MIN: int(60),
+  MASUMI_UNLOCK_DELAY_MIN: int(16),
+  MASUMI_DISPUTE_DELAY_MIN: int(16),
+  /** Contract address of our V2 payment source, for Sokosumi's masumiPayment.PaymentSource when MPS does not return it. */
+  MASUMI_SMART_CONTRACT_ADDRESS: optional,
 
   /** Sokosumi Coworker worker (Tasks). Unset SOKOSUMI_COWORKER_ID disables it. */
   SOKOSUMI_COWORKER_ID: optional,
@@ -89,6 +96,11 @@ const schema = z.object({
   SOKOSUMI_ORGANIZATION_SLUG: optional,
   SOKOSUMI_CLI: z.string().default('sokosumi'),
   SOKOSUMI_POLL_MS: int(10_000),
+  /** Deadlines for paid Tasks, in minutes: no human check-in, so collection is ~62 min after the Task starts. */
+  SOKOSUMI_PAY_WINDOW_MIN: int(20),
+  SOKOSUMI_RESULT_WINDOW_MIN: int(30),
+  /** How long one HAAS run on a Task may take before the Task fails. */
+  SOKOSUMI_RUN_TIMEOUT_MIN: int(15),
   /** Charge each Task the Masumi job fee (needs MASUMI_* set and a confirmed Dynamic registration). */
   SOKOSUMI_PAID_TASKS: bool(false),
 
