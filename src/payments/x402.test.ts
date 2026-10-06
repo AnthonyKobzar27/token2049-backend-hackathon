@@ -12,6 +12,9 @@ import { testConfig, type Config } from '../config';
 import { createStore } from '../db/db';
 import type { ApiDeps, JobService, Store } from '../domain/ports';
 import type { Job } from '../domain/types';
+import { generateKeyPairSigner } from '@solana/kit';
+import { wrapFetchWithPaymentFromConfig } from '@x402/fetch';
+import { ExactSvmScheme } from '@x402/svm/exact/client';
 import { jobIdForTx, mountX402, pendingKey } from './x402';
 import { MASUMI_USDM_PREPROD } from './x402-networks';
 
@@ -207,6 +210,35 @@ describe('x402 paywall on both chains', () => {
     expect(jobs.startJob).toHaveBeenCalledTimes(1);
     expect(store.getJob(id)?.brief.task).toBe('persisted brief');
     second.close();
+  });
+
+  it('accepts a payment built by the real @x402/fetch Solana client', async () => {
+    // Stub Solana RPC: the client reads the USDC mint (an 82-byte SPL mint, 6 decimals) and a recent blockhash.
+    const mint = Buffer.alloc(82);
+    mint[44] = 6;
+    mint[45] = 1;
+    const rpc = express();
+    rpc.use(express.json());
+    rpc.post('/', (req, res) => {
+      const value =
+        req.body.method === 'getAccountInfo'
+          ? { data: [mint.toString('base64'), 'base64'], executable: false, lamports: 1461600, owner: 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', rentEpoch: 0, space: 82 }
+          : { blockhash: 'EkSnNWid2cvwEVnVx9aBqawnmiCNiDgp3gUdkDPTKN1N', lastValidBlockHeight: 100 };
+      res.json({ jsonrpc: '2.0', id: req.body.id, result: { context: { slot: 1 }, value } });
+    });
+    const rpcServer = await listen(rpc);
+    const store = createStore(':memory:');
+    const jobs = fakeJobs(store);
+    const api = await mount({ ...config, X402_NETWORK: 'solana:devnet' }, { jobs, store });
+    const signer = await generateKeyPairSigner();
+    const pay = wrapFetchWithPaymentFromConfig(fetch, { schemes: [{ network: SOL_DEVNET, client: new ExactSvmScheme(signer, { rpcUrl: urlOf(rpcServer) }) }] });
+    const res = await pay(`${api.url}/x402/route`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(BRIEF) });
+    expect(res.status).toBe(202);
+    const { job_id } = (await res.json()) as { job_id: string };
+    expect(jobs.startJob).toHaveBeenCalledWith(expect.objectContaining({ id: job_id }));
+    expect(store.getJob(job_id)?.settlement?.explorerUrl).toContain('cluster=devnet');
+    api.close();
+    rpcServer.close();
   });
 
   it('serves job status, only for x402 jobs, and maps input', async () => {
