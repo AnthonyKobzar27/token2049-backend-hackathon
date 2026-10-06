@@ -23,7 +23,7 @@ const f = (key: string, label: string, type: ResultField['type'], required: bool
 
 function kindOf(text: string, brief: Brief): BountySpec['kind'] {
   if (/\b(call|phone|ring|telephone)\b/.test(text)) return 'phone_call';
-  if (/\b(pick ?up|drop ?off|deliver|courier|buy|collect)\b/.test(text)) return 'errand';
+  if (/\b(pick ?up|drop( ?off)?|deliver|courier|buy|collect)\b/.test(text)) return 'errand';
   if (/\b(visit|go to|queue|on.?site|in person|photo of|photograph|walk to|stand in line)\b/.test(text) || brief.remoteOk === false) return 'on_site';
   if (/\b(online|website|email|web form|search)\b/.test(text)) return 'online';
   return 'other';
@@ -59,7 +59,7 @@ export function rulesSpec(brief: Brief): BountySpec {
   const kind = kindOf(text, brief);
   const estMinutes = brief.hoursNeeded ? Math.max(5, Math.round(brief.hoursNeeded * 60)) : KIND_MINUTES[kind];
   const found = findPlace(`${brief.task} ${brief.location ?? ''}`);
-  const placeName = /\b(?:call|visit|go to|ring|phone)\s+(?:the\s+)?([A-Z][\w'&-]*(?:\s+[A-Z][\w'&-]*){0,5})/.exec(brief.task)?.[1];
+  const placeName = /\b(?:[Cc]all|[Vv]isit|[Gg]o to|[Rr]ing|[Pp]hone)\s+(?:the\s+)?([A-Z][\w'&-]*(?:\s+[A-Z][\w'&-]*){0,5})/.exec(brief.task)?.[1];
 
   let fields: ResultField[];
   let summaryTemplate: string;
