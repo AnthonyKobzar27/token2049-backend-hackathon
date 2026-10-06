@@ -1,0 +1,391 @@
+{
+ "success": true,
+ "humans": [
+  {
+   "id": "2iaRP6AdNdfCS0omz95o",
+   "name": "Tommy",
+   "headline": "AI Annotation & Data Entry Specialist | 6+ Years Experience | High-Quality Data for ML & Analytics",
+   "gender": "man",
+   "bio": "I am a detail-oriented AI Annotation and Data Entry Specialist with over 6years of experience dedicated to delivering high-quality datasets for machine learning and analytics. I have a proven track record of producing over 500,000 labeled records with exceptional accuracy, consistently maintaining 98-99% quality. My expertise includes labeling and validating large volumes of data, such as the 300,000+ records I managed at Surge AI. I am adept at standardizing unstructured data, identifying duplicates and inconsistencies, and processing significant record volumes, up to 15,000 monthly. I am committed to quality, having reduced rework by 25% and actively conducting peer quality checks. I thrive in remote environments and consistently meet tight deadlines.",
+   "skills": [
+    "Customer service",
+    "Editing",
+    "Graphic design",
+    "AI Annotation",
+    "Data Entry",
+    "Data Cleaning",
+    "Excel",
+    "Google Sheets",
+    "Data Validation",
+    "Quality Assurance",
+    "Data Standardization",
+    "Machine Learning Data",
+    "Remote Collaboration",
+    "Detail-Oriented",
+    "Deadline Management"
+   ],
+   "expertise": [],
+   "location": {
+    "city": "California",
+    "state": "Pennsylvania",
+    "country": "US",
+    "isRemoteAvailable": true
+   },
+   "languages": [
+    "English"
+   ],
+   "hourlyRate": 10,
+   "currency": "USD",
+   "availability": {
+    "monday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "tuesday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "wednesday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "thursday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "friday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "saturday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "sunday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ]
+   },
+   "timezone": "UTC",
+   "totalBookings": 0,
+   "rating": 0,
+   "reviewCount": 0,
+   "isAvailable": true,
+   "isVerified": false,
+   "isProfileComplete": true,
+   "isFeatured": false,
+   "teamPick": false,
+   "photoUrls": [],
+   "profileUrl": "https://rentahuman.ai/humans/2iaRP6AdNdfCS0omz95o",
+   "activityFreshness": "within_7_days"
+  },
+  {
+   "id": "GeMFoY3bGRxO15LIirle",
+   "name": "Aaron Sanchez",
+   "headline": "Graphic & Multimedia Designer | 30+ Years in Design, Photography, Video & Post-Production",
+   "gender": "man",
+   "bio": "I am a graphic and multimedia professional with more than 30 years of experience producing communication materials from concept through final delivery. I create graphics for social media, print, billboards, video, and institutional communications, combining design, photography, illustration, prepress, audio, video editing, and post-production expertise. I work confidently with Adobe Creative Suite, DaVinci Resolve, Pro Tools, QuarkXPress, and Framer. Throughout my career, I have improved delivery times, strengthened brand consistency, introduced production technologies, trained staff, and collaborated closely with teams to deliver polished visual content.",
+   "avatarUrl": "/api/avatar/GeMFoY3bGRxO15LIirle",
+   "skills": [
+    "Documentary Production  Corporate Image  Graphic D",
+    "Editing",
+    "Graphic design",
+    "Photography",
+    "Translation",
+    "Videography",
+    "Tutoring",
+    "Tech support",
+    "Adobe Illustrator",
+    "Adobe Photoshop",
+    "Adobe After Effects",
+    "Adobe InDesign",
+    "DaVinci Resolve",
+    "Avid Pro Tools",
+    "QuarkXPress"
+   ],
+   "expertise": [
+    "Creative & Media",
+    "Delivery & Errands",
+    "Research & Fieldwork",
+    "Home & Personal",
+    "Other"
+   ],
+   "location": {
+    "city": "Metepec",
+    "state": "State of Mexico",
+    "country": "MX",
+    "isRemoteAvailable": true
+   },
+   "languages": [
+    "English",
+    "Spanish"
+   ],
+   "hourlyRate": 3.1,
+   "currency": "USD",
+   "availability": {
+    "monday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "tuesday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "wednesday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "thursday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "friday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "saturday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "sunday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ]
+   },
+   "timezone": "UTC",
+   "totalBookings": 0,
+   "rating": 0,
+   "reviewCount": 0,
+   "isAvailable": true,
+   "isVerified": false,
+   "isProfileComplete": true,
+   "isFeatured": false,
+   "teamPick": false,
+   "photoUrls": [],
+   "profileUrl": "https://rentahuman.ai/humans/GeMFoY3bGRxO15LIirle",
+   "activityFreshness": "within_7_days"
+  },
+  {
+   "id": "LXZ76bEf8HpsMcOgqARS",
+   "name": "Maritza Giovanna Glez",
+   "headline": "Photographer & Videographer | Graphic Designer | English-Spanish Translator",
+   "gender": "woman",
+   "bio": "I'm a freelance photographer and videographer with experience dating back to 2015 and a background in graphic design. I help clients turn their ideas into compelling visual stories, from planning creative shoots and setting up lighting to editing and delivering polished images. I work with Adobe Photoshop, Lightroom, and Illustrator, and my editing skills include color correction, skin retouching, and special effects. I enjoy collaborating with clients to understand their vision and offer creative guidance, and I'm equally comfortable working independently. I hold a bachelor's degree in graphic design and have completed additional training in photography and digital art. I also work as an English-Spanish translator and interpreter and have experience teaching and tutoring Spanish.",
+   "avatarUrl": "/api/avatar/LXZ76bEf8HpsMcOgqARS",
+   "skills": [
+    "Photography",
+    "Videography",
+    "Graphic Design",
+    "Adobe Photoshop",
+    "Adobe Lightroom",
+    "Adobe Illustrator",
+    "Photography Lighting",
+    "Photo Retouching",
+    "Color Correction",
+    "Visual Storytelling",
+    "Creative Shoot Planning",
+    "Client Communication",
+    "English-Spanish Translation",
+    "English-Spanish Interpretation",
+    "Spanish Teaching"
+   ],
+   "expertise": [],
+   "location": {
+    "city": "Pacifica",
+    "state": "California",
+    "country": "US",
+    "isRemoteAvailable": true
+   },
+   "languages": [
+    "English",
+    "Spanish"
+   ],
+   "hourlyRate": 7.25,
+   "currency": "USD",
+   "availability": {
+    "monday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "tuesday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "wednesday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "thursday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "friday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "saturday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "sunday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ]
+   },
+   "timezone": "UTC",
+   "totalBookings": 0,
+   "rating": 0,
+   "reviewCount": 0,
+   "isAvailable": true,
+   "isVerified": false,
+   "isProfileComplete": true,
+   "isFeatured": false,
+   "teamPick": false,
+   "photoUrls": [],
+   "profileUrl": "https://rentahuman.ai/humans/LXZ76bEf8HpsMcOgqARS",
+   "activityFreshness": "within_7_days"
+  },
+  {
+   "id": "BNo1ZS0kod2AZfo6PaoM",
+   "name": "Jercyl Joy Raba",
+   "headline": "AI Voice Data Evaluator | English & Tagalog | Graphic & Logo Designer",
+   "gender": "woman",
+   "bio": "I evaluate AI voice conversations in English and Tagalog, checking responses for accuracy, relevance, clarity, naturalness, and conversational flow. I provide objective ratings, annotations, and structured feedback based on project guidelines, identifying misunderstood speech and incorrect responses. My background also includes graphic design, logo creation, printing services, and customer support. I use Canva and Adobe Photoshop to create visual materials, prepare print-ready artwork, and revise designs based on client feedback. I bring attention to detail, analytical thinking, and experience translating customer requirements into clear designs and accurate order details.",
+   "avatarUrl": "/api/avatar/BNo1ZS0kod2AZfo6PaoM",
+   "skills": [
+    "AI Response Evaluation",
+    "Voice AI Evaluation",
+    "Data Annotation & Labeling",
+    "Quality Assurance",
+    "English–Tagalog Conversation Assessment",
+    "Canva",
+    "Adobe Photoshop",
+    "Graphic Design",
+    "Logo Design",
+    "Print-Ready Artwork Preparation",
+    "Customer Support",
+    "Creative Writing",
+    "Analytical Thinking",
+    "Attention to Detail",
+    "Problem Solving"
+   ],
+   "expertise": [],
+   "location": {
+    "city": "Quezon City",
+    "state": "Metro Manila",
+    "country": "PH",
+    "isRemoteAvailable": true
+   },
+   "languages": [
+    "Filipino",
+    "English"
+   ],
+   "hourlyRate": 8,
+   "currency": "USD",
+   "availability": {
+    "monday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "tuesday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "wednesday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "thursday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "friday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "saturday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ],
+    "sunday": [
+     {
+      "start": "09:00",
+      "end": "17:00"
+     }
+    ]
+   },
+   "timezone": "UTC",
+   "totalBookings": 0,
+   "rating": 0,
+   "reviewCount": 0,
+   "isAvailable": true,
+   "isVerified": false,
+   "isProfileComplete": true,
+   "isFeatured": false,
+   "teamPick": false,
+   "photoUrls": [],
+   "profileUrl": "https://rentahuman.ai/humans/BNo1ZS0kod2AZfo6PaoM",
+   "activityFreshness": "within_7_days"
+  }
+ ],
+ "count": 4,
+ "totalCount": 4,
+ "offset": 0,
+ "limit": 4,
+ "hasMore": false,
+ "nextCursor": null
+}

@@ -1,0 +1,128 @@
+{
+ "success": true,
+ "human": {
+  "id": "BNo1ZS0kod2AZfo6PaoM",
+  "name": "Jercyl Joy Raba",
+  "username": "young21",
+  "headline": "AI Voice Data Evaluator | English & Tagalog | Graphic & Logo Designer",
+  "gender": "woman",
+  "bio": "I evaluate AI voice conversations in English and Tagalog, checking responses for accuracy, relevance, clarity, naturalness, and conversational flow. I provide objective ratings, annotations, and structured feedback based on project guidelines, identifying misunderstood speech and incorrect responses. My background also includes graphic design, logo creation, printing services, and customer support. I use Canva and Adobe Photoshop to create visual materials, prepare print-ready artwork, and revise designs based on client feedback. I bring attention to detail, analytical thinking, and experience translating customer requirements into clear designs and accurate order details.",
+  "avatarUrl": "/api/avatar/BNo1ZS0kod2AZfo6PaoM",
+  "photoUrls": [],
+  "skills": [
+   "AI Response Evaluation",
+   "Voice AI Evaluation",
+   "Data Annotation & Labeling",
+   "Quality Assurance",
+   "English–Tagalog Conversation Assessment",
+   "Canva",
+   "Adobe Photoshop",
+   "Graphic Design",
+   "Logo Design",
+   "Print-Ready Artwork Preparation",
+   "Customer Support",
+   "Creative Writing",
+   "Analytical Thinking",
+   "Attention to Detail",
+   "Problem Solving"
+  ],
+  "expertise": [],
+  "location": {
+   "city": "Quezon City",
+   "state": "Metro Manila",
+   "country": "PH",
+   "isRemoteAvailable": true
+  },
+  "workPreferences": {
+   "modality": "digital",
+   "domains": [
+    "translation-languages",
+    "voice-audio",
+    "design-creative",
+    "data-entry-labeling",
+    "marketing-social"
+   ]
+  },
+  "languages": [
+   "Filipino",
+   "English"
+  ],
+  "qualificationBadgeSummaries": [],
+  "writingVerified": false,
+  "languageProficiencySummaries": [],
+  "education": "",
+  "workHistory": "AI Voice Data Evaluator at QUANTASHIFT DEVELOPMENT SERVICES (Aug 2025 - Present)\nSales Agent at DESIGN PRESS AND PRINTING SERVICES (May 2024 - Jan 2025)\nGraphic Artist at HJMJ PRINTING SERVICES (Sep 2023 - May 2024)",
+  "certifications": [],
+  "linkedinVerified": false,
+  "linkedinVerifiedAt": null,
+  "hourlyRate": 8,
+  "currency": "USD",
+  "services": [],
+  "availability": {
+   "monday": [
+    {
+     "start": "09:00",
+     "end": "17:00"
+    }
+   ],
+   "tuesday": [
+    {
+     "start": "09:00",
+     "end": "17:00"
+    }
+   ],
+   "wednesday": [
+    {
+     "start": "09:00",
+     "end": "17:00"
+    }
+   ],
+   "thursday": [
+    {
+     "start": "09:00",
+     "end": "17:00"
+    }
+   ],
+   "friday": [
+    {
+     "start": "09:00",
+     "end": "17:00"
+    }
+   ],
+   "saturday": [
+    {
+     "start": "09:00",
+     "end": "17:00"
+    }
+   ],
+   "sunday": [
+    {
+     "start": "09:00",
+     "end": "17:00"
+    }
+   ]
+  },
+  "timezone": "UTC",
+  "totalBookings": 0,
+  "rating": 0,
+  "reviewCount": 0,
+  "profileViews": 0,
+  "isAvailable": true,
+  "isVerified": false,
+  "isFeatured": false,
+  "teamPick": false,
+  "approvedSignHolder": false,
+  "phoneVerified": true,
+  "accountType": "individual",
+  "businessInfo": null,
+  "createdAt": "2026-10-02T14:22:41.847Z",
+  "profileUrl": "https://rentahuman.ai/humans/young21",
+  "identitySignals": {
+   "accountAgeDays": 3,
+   "newAccount": true,
+   "signupCountryMismatch": false,
+   "hasPriorDisputes": false,
+   "phoneSharedWithOtherAccounts": false
+  }
+ }
+}
