@@ -11,8 +11,13 @@ import type { EscrowProvider, Store } from '../domain/ports';
 export interface SolanaPayDeps {
   store: Store;
   escrow: EscrowProvider;
-  config: { PUBLIC_URL: string };
+  /** With ESCROW_DEPOSIT_TIMEOUT_MIN, no deposit is handed out that could land after the booking is cancelled. */
+  config: { PUBLIC_URL: string; ESCROW_DEPOSIT_TIMEOUT_MIN?: number };
+  now?: () => number;
 }
+
+/** A signed deposit can still land this long after it was built (blockhash lifetime plus slack). */
+const DEPOSIT_LANDING_MS = 2 * 60_000;
 
 const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#14151a"/><text x="32" y="42" font-family="sans-serif" font-size="24" font-weight="700" fill="#14f195" text-anchor="middle">HA</text></svg>`;
 
@@ -64,6 +69,13 @@ export function mountSolanaPay(app: Express, deps: SolanaPayDeps): void {
     }
     if (booking.status !== 'pending_escrow' || esc.status !== 'awaiting_deposit') {
       res.status(409).json({ error: `booking is ${booking.status} and escrow is ${esc.status}; no deposit is expected` });
+      return;
+    }
+    // Too close to the deposit window's end: the booking may be cancelled before the deposit lands,
+    // and the funds would then sit in the escrow until its deadline.
+    const windowMin = config.ESCROW_DEPOSIT_TIMEOUT_MIN;
+    if (windowMin && (deps.now ?? Date.now)() >= esc.createdAt + windowMin * 60_000 - DEPOSIT_LANDING_MS) {
+      res.status(409).json({ error: 'the deposit window for this booking is closing; ask for a new booking' });
       return;
     }
     try {

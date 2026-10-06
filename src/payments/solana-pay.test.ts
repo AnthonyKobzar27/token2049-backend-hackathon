@@ -10,7 +10,7 @@ import { mountSolanaPay } from './solana-pay';
 const servers: { close(): void }[] = [];
 afterEach(() => servers.splice(0).forEach((s) => s.close()));
 
-async function serve(o: { booking?: Partial<Booking>; escrow?: Partial<EscrowRecord> } = {}) {
+async function serve(o: { booking?: Partial<Booking>; escrow?: Partial<EscrowRecord>; window?: number; now?: number } = {}) {
   const store = createStore(':memory:');
   const t = 1;
   store.insertBooking({ id: 'bk1', jobId: 'j1', profileId: 'p', platform: 'fake', source: 'fake', status: 'pending_escrow', priceUsd: 5, paused: false, createdAt: t, updatedAt: t, ...o.booking });
@@ -22,7 +22,7 @@ async function serve(o: { booking?: Partial<Booking>; escrow?: Partial<EscrowRec
   };
   const app = express();
   app.use(express.json());
-  mountSolanaPay(app, { store, escrow: provider, config: { PUBLIC_URL: 'https://x/' } });
+  mountSolanaPay(app, { store, escrow: provider, config: { PUBLIC_URL: 'https://x/', ...(o.window && { ESCROW_DEPOSIT_TIMEOUT_MIN: o.window }) }, ...(o.now !== undefined && { now: () => o.now! }) });
   const server = app.listen(0);
   servers.push(server);
   await new Promise((r) => server.once('listening', r));
@@ -52,6 +52,16 @@ describe('solana pay transaction request', () => {
     const b = await serve({ booking: { status: 'cancelled' }, escrow: { status: 'failed' } });
     expect((await post(b.base, { account })).status).toBe(409);
     expect(b.provider.buildDepositTransaction).not.toHaveBeenCalled();
+  });
+
+  it('stops handing out deposits shortly before the deposit window closes', async () => {
+    const min = 60_000;
+    const open = await serve({ window: 60, now: 1 + 57 * min });
+    expect((await post(open.base, { account })).status).toBe(200);
+    const closing = await serve({ window: 60, now: 1 + 59 * min });
+    const res = await post(closing.base, { account });
+    expect(res.status).toBe(409);
+    expect(closing.provider.buildDepositTransaction).not.toHaveBeenCalled();
   });
 
   it('serves the deposit QR as a PNG', async () => {
