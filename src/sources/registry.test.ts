@@ -195,4 +195,13 @@ describe('search budget', () => {
     await reg.settle();
     expect(search).toHaveBeenCalledTimes(1); // pinned: no refresh
   });
+
+  it('demo mode keeps the fixture source even when SOURCES leaves it out', () => {
+    const fixture: FreelancerSource = { ...source('fake', async () => []), kind: 'fixture' };
+    const api = source('api', async () => []);
+    const live = createRegistry({ sources: [fixture, api], store: memStore().store, bus: createEventBus(), config: testConfig({ SOURCES: 'api' }) });
+    expect(live.enabled().map((s) => s.name)).toEqual(['api']);
+    const demo = createRegistry({ sources: [fixture, api], store: memStore().store, bus: createEventBus(), config: testConfig({ SOURCES: 'api', DEMO_MODE: true }) });
+    expect(demo.enabled().map((s) => s.name)).toEqual(['fake', 'api']);
+  });
 });

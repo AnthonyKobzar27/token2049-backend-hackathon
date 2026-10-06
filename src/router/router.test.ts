@@ -93,4 +93,24 @@ describe('router', () => {
     expect(top.subscores.timing).not.toBeUndefined();
     expect(top.reason).toMatch(/km from|in Singapore|based in/);
   });
+
+  it('demo mode: a warm shortlist comes back well inside the 2 s stage budget', async () => {
+    const cache = new Map<string, FreelancerProfile[]>();
+    const store = {
+      putProfiles: (s: string, k: string, p: FreelancerProfile[]) => void cache.set(`${s}|${k}`, p),
+      getCachedProfiles: (s: string, k: string) => cache.get(`${s}|${k}`) ?? null,
+      getSuitability: () => null,
+      putSuitability: () => {},
+    } as unknown as Store;
+    const config = testConfig({ DEMO_MODE: true, DEMO_BUDGET_MS: 2_000, SOURCES: 'cold' });
+    const bus = createEventBus();
+    const cold: FreelancerSource = { name: 'cold', platform: 'cold', kind: 'api', isEnabled: () => true, search: () => new Promise(() => {}) };
+    const registry = createRegistry({ sources: [createFakeSource(), cold], store, bus, config });
+    const router = createRouter({ registry, suitability: createSuitabilityScorer({ store, config: testConfig({ ANTHROPIC_API_KEY: undefined }) }), bus, config });
+    const t0 = Date.now();
+    const r = await router.route(brief, { limit: 5 });
+    expect(Date.now() - t0).toBeLessThan(1_500); // the hung source is cut at 65% of the budget
+    expect(r.candidates.length).toBeGreaterThan(0);
+    expect(r.sources.find((s) => s.source === 'cold')!.late).toBe(true);
+  });
 });

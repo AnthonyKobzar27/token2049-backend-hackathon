@@ -59,7 +59,9 @@ export function createRegistry(deps: { sources: FreelancerSource[]; store: Store
   const enabled = (): FreelancerSource[] => {
     const allow = explicitlyListed();
     return sources.filter((s) => {
-      if (allow ? !allow.has(s.name) : s.kind === 'browser' && !config.BROWSER_SOURCES) return false;
+      // Demo mode always keeps the fixture source, so the stage never shows an empty shortlist.
+      const demoFixture = config.DEMO_MODE && s.kind === 'fixture';
+      if (!demoFixture && (allow ? !allow.has(s.name) : s.kind === 'browser' && !config.BROWSER_SOURCES)) return false;
       return safe(() => s.isEnabled()) === true;
     });
   };

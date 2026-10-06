@@ -78,6 +78,20 @@ pnpm start
 
 Secrets and the database live in `~/.haas/`, outside the repository.
 
+### Matching and speed
+
+- Each request is weighed by task type: on-site errands lean on distance and the requested day and time; remote work leans on fit and price. Override with `ROUTER_WEIGHTS`.
+- Day and time ("Saturday 2-5pm", "tomorrow morning") are read from the brief and checked against each person's time zone and published schedule. Unknowns cost a little and never drop anyone.
+- Without an API key, fit is scored by TF-IDF over title, skills and bio with a synonym map; with one, the model scores in parallel batches within the time budget.
+- A search answers within `SEARCH_BUDGET_MS` (6 s): sources still running are marked late and fill the cache for the next search, and expired cache is served at once while it refreshes.
+
+For the stage, warm the cache and pin it:
+
+```bash
+pnpm demo:warm
+DEMO_MODE=true pnpm start
+```
+
 ## Layout
 
 | Path | What it holds |
