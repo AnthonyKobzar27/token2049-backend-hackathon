@@ -160,6 +160,8 @@ export interface Candidate {
   quoteUsd?: number;
   /** Index into profile.pricing that quoteUsd is based on. */
   pricingIndex?: number;
+  /** Set when a HAAS credential is confirmed (Cardano CIP-68 and/or Veridian KERI): the 'verified' label. */
+  identity?: { verified: true; by: Array<'cardano' | 'veridian'>; jobsCompleted: number; avgRating?: number };
 }
 
 export interface SourceStatus {
@@ -273,6 +275,8 @@ export interface JobResult {
   bookingId?: string;
   bookingRef?: string;
   bookingUrl?: string;
+  /** QA-verified delivery: the hash the escrow release and the Masumi submit-result both carry, and what it hashes. */
+  verifiedResult?: { hash: string; payload: string };
   /** How the job was paid, when it was paid over x402. */
   settlement?: PaymentSettlement;
   /** The work's own result, for tasks a person carries out (bounties): structured fields plus a one-line summary. */

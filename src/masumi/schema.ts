@@ -133,7 +133,7 @@ export const CANCEL = 'cancel';
 const SEP = ' | ';
 
 const label = (c: Shortlist['candidates'][number]): string =>
-  `${c.profile.id}${SEP}${c.profile.name} (score ${Math.round(c.score)}/100${c.quoteUsd !== undefined ? `, about $${Math.round(c.quoteUsd)}` : ''})`;
+  `${c.profile.id}${SEP}${c.profile.name}${c.identity?.verified ? ' ✓ verified' : ''} (score ${Math.round(c.score)}/100${c.quoteUsd !== undefined ? `, about $${Math.round(c.quoteUsd)}` : ''})`;
 
 /** The input_schema shown with status awaiting_input: pick one candidate, ask for others, or cancel. */
 export function checkInSchema(shortlist: Shortlist | null): InputSchema {

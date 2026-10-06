@@ -242,6 +242,8 @@ export interface OnChainSignal {
   avgRating?: number;
   /** The credential behind `verified` includes a verified Veridian (KERI ACDC) credential (src/identity/veridian). */
   veridian?: boolean;
+  /** The credential behind `verified` includes the Cardano CIP-68 credential, confirmed on chain. */
+  cardano?: boolean;
 }
 
 const ONCHAIN_MAX_BOOST = 10;
@@ -347,6 +349,10 @@ export function rank(brief: Brief, profiles: FreelancerProfile[], suitability: M
     const c: Candidate = { profile, score, subscores: sub, reason, unknowns };
     if (q.quoteUsd !== undefined) c.quoteUsd = q.quoteUsd;
     if (q.pricingIndex !== undefined) c.pricingIndex = q.pricingIndex;
+    if (sig?.verified) {
+      const by: Array<'cardano' | 'veridian'> = [...(sig.cardano || !sig.veridian ? ['cardano' as const] : []), ...(sig.veridian ? ['veridian' as const] : [])];
+      c.identity = { verified: true, by, jobsCompleted: sig.jobsCompleted, ...(sig.avgRating !== undefined && { avgRating: sig.avgRating }) };
+    }
     return c;
   });
   scored.sort((a, b) => b.score - a.score || a.profile.id.localeCompare(b.profile.id));

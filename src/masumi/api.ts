@@ -89,6 +89,8 @@ const shortlistView = (s: Shortlist) =>
     reason: c.reason,
     unknowns: c.unknowns,
     quote_usd: c.quoteUsd ?? null,
+    verified: c.identity?.verified ?? false,
+    ...(c.identity && { verified_by: c.identity.by, jobs_on_chain: c.identity.jobsCompleted }),
   }));
 
 /** Extra start_job fields a buyer needs for POST /purchase on a V2, Dynamic-priced agent. */

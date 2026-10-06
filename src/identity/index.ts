@@ -2,6 +2,7 @@
 
 import type { Config } from '../config';
 import type { EventBus, Store } from '../domain/ports';
+import type { Booking } from '../domain/types';
 import type { ReputationChain } from './chain';
 import { createCip68Issuer, type CredentialIssuer } from './issuer';
 import { createMeshChain } from './mesh';
@@ -28,14 +29,14 @@ export function createChainFromConfig(config: Config): ReputationChain {
 }
 
 /** Wires the registry and the minter around a chain. Pass `chain` to override (tests, demos). */
-export function createIdentity(deps: { store: Store; bus: EventBus; config: Config; chain?: ReputationChain }): Identity | null {
+export function createIdentity(deps: { store: Store; bus: EventBus; config: Config; chain?: ReputationChain; workerOf?: (booking: Booking) => string | undefined }): Identity | null {
   const { store, bus, config } = deps;
   if (!deps.chain && !identityConfigured(config)) return null;
   const chain = deps.chain ?? createChainFromConfig(config);
   const issuer = createCip68Issuer(chain);
   const registry = createIdentityRegistry({ store, chain, issuer });
   const minter = createReputationMinter(
-    { store, bus, registry },
+    { store, bus, registry, ...(deps.workerOf && { workerOf: deps.workerOf }) },
     {
       verifyGraceMs: config.IDENTITY_VERIFY_GRACE_MIN * 60_000,
       requireVerification: config.IDENTITY_REQUIRE_VERIFICATION,

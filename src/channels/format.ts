@@ -57,7 +57,8 @@ export function parseCallback(data: string): Callback | null {
 export function candidateCard(c: Candidate, index: number): string {
   const p = c.profile;
   const lines: string[] = [];
-  lines.push(`<b>${index + 1}. ${esc(p.name)}</b> · ${esc(p.platform)} · score ${Math.round(c.score)}`);
+  const badge = c.identity?.verified ? ` · ✓ verified (${c.identity.by.join(' + ')})` : '';
+  lines.push(`<b>${index + 1}. ${esc(p.name)}</b> · ${esc(p.platform)} · score ${Math.round(c.score)}${badge}`);
   if (p.headline) lines.push(esc(p.headline));
   const facts: string[] = [];
   if (c.quoteUsd !== undefined) facts.push(`quote ${usd(c.quoteUsd)}`);

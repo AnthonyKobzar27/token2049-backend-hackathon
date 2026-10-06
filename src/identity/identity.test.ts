@@ -98,7 +98,7 @@ describe('IdentityRegistry', () => {
     expect(first.get('fake:w1')).toEqual({ verified: false, jobsCompleted: 0 });
     expect(first.has('fake:unknown')).toBe(false);
     await flush();
-    expect(registry.signals(['fake:w1']).get('fake:w1')).toEqual({ verified: true, jobsCompleted: 0 });
+    expect(registry.signals(['fake:w1']).get('fake:w1')).toEqual({ verified: true, cardano: true, jobsCompleted: 0 });
 
     // Moving the user NFT away breaks the binding: no boost.
     chain.transfer(registry.credentialOf('fake:w1')!.userUnit, W2);
@@ -299,7 +299,7 @@ describe('ReputationMinter', () => {
     expect(sig).toMatchObject({ jobsCompleted: 3, verifiedJobs: 3, ratedJobs: 2, ratingSum: 9, totalEarnedUsd: 300 });
     const updates = chain.txs.filter((t) => t.kind === 'update');
     expect(sig.lastUpdateTx).toBe(updates[2]!.txHash);
-    expect(registry.signals(['fake:w1']).get('fake:w1')).toEqual({ verified: true, jobsCompleted: 3, avgRating: 4.5 });
+    expect(registry.signals(['fake:w1']).get('fake:w1')).toEqual({ verified: true, cardano: true, jobsCompleted: 3, avgRating: 4.5 });
   });
 });
 

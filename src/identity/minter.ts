@@ -68,7 +68,16 @@ const K = {
 };
 const OPEN: MintTaskStatus[] = ['waiting_verification', 'waiting_wallet', 'queued'];
 
-export function createReputationMinter(deps: { store: Store; bus: EventBus; registry: IdentityRegistry }, opts: MinterOptions = {}): ReputationMinter {
+export function createReputationMinter(
+  deps: {
+    store: Store;
+    bus: EventBus;
+    registry: IdentityRegistry;
+    /** Who actually did the work, when it can differ from the booked profile (a broadcast bounty claimed by a neighbour). */
+    workerOf?: (booking: Booking) => string | undefined;
+  },
+  opts: MinterOptions = {},
+): ReputationMinter {
   const { store, bus, registry } = deps;
   const chain = registry.chain;
   const now = opts.now ?? Date.now;
@@ -118,7 +127,15 @@ export function createReputationMinter(deps: { store: Store; bus: EventBus; regi
 
   function onBooking(b: Booking) {
     if (b.status !== 'completed') return;
-    enqueue({ bookingId: b.id, workerId: b.profileId, jobId: b.jobId, priceUsd: b.priceUsd });
+    // Completed through the booking QA step: accepted (QA passed, or a person accepted it), bound to its result hash.
+    if (b.resultHash && !qaOf(b.id)?.passed) minter.recordVerification({ bookingId: b.id, jobId: b.jobId, passed: true, resultHash: b.resultHash });
+    let workerId = b.profileId;
+    try {
+      workerId = deps.workerOf?.(b) ?? b.profileId;
+    } catch (err) {
+      console.error('[identity] worker lookup failed:', err);
+    }
+    enqueue({ bookingId: b.id, workerId, jobId: b.jobId, priceUsd: b.priceUsd });
     kick();
   }
 
@@ -126,6 +143,14 @@ export function createReputationMinter(deps: { store: Store; bus: EventBus; regi
     try {
       if (e.type === 'booking.updated') onBooking((e as Extract<HaasEvent, { type: 'booking.updated' }>).booking);
       else if (isVerificationEvent(e)) minter.recordVerification(e);
+      // The booking engine's QA events (src/engine/bookings.ts): a pass counts at once, a final rejection never mints.
+      else if (e.type === 'verification.completed' && 'report' in e) {
+        const { booking, report } = e as Extract<HaasEvent, { type: 'verification.completed' }>;
+        if (report.verdict === 'pass') minter.recordVerification({ bookingId: booking.id, jobId: booking.jobId, passed: true, resultHash: report.resultHash });
+      } else if (e.type === 'verification.rejected') {
+        const { booking, report } = e as Extract<HaasEvent, { type: 'verification.rejected' }>;
+        minter.recordVerification({ bookingId: booking.id, jobId: booking.jobId, passed: false, resultHash: report.resultHash });
+      }
       else if (isPaymentCollectedEvent(e)) minter.recordPayment(e.jobId, e.txHash);
     } catch (err) {
       console.error('[identity] event handling failed:', err);

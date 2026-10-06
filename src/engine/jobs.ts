@@ -4,6 +4,17 @@ import { assertJobTransition } from '../domain/machine';
 import { newId, now } from '../domain/ids';
 import type { BookingService, EventBus, JobService, Router, Store } from '../domain/ports';
 import type { Booking, Brief, Candidate, Job, JobResult, JobStatus, UserInput } from '../domain/types';
+import { resultPayload } from '../verify/hash';
+
+/**
+ * The verified result the escrow release was bound to. `hash` is the MIP-004 hash of `payload`
+ * (sha256 of "<identifierFromPurchaser>;<payload>"), so a buyer can check it, and the Masumi
+ * watcher submits this same hash instead of hashing the whole /status result.
+ */
+export function verifiedResultOf(booking: Booking): NonNullable<JobResult['verifiedResult']> {
+  const d = booking.delivery;
+  return { hash: booking.resultHash!, payload: resultPayload(booking.id, { text: d?.text, urls: d?.urls, fields: d?.data }) };
+}
 
 export interface JobDeps {
   store: Store;
@@ -107,6 +118,7 @@ export function createJobService(deps: JobDeps): JobService {
         bookingId: booking.id,
         bookingRef: booking.platformRef,
         bookingUrl: booking.url,
+        ...(booking.resultHash && { verifiedResult: verifiedResultOf(booking) }),
       });
     }
     if (booking.platform !== 'bounty' && (booking.status === 'placed' || booking.status === 'handoff')) {

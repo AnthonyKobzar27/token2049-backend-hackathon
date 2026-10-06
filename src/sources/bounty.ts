@@ -71,6 +71,9 @@ export function createBountySource(deps: BountySourceDeps): FreelancerSource {
             reviewCount: w.completed,
             level: 'HAAS verified',
             verified: w.verified,
+            // Direct mode: the escrow pays this worker's wallet on release. Broadcast mode leaves the
+            // payee to the operator, since a neighbour may claim first (the board pays whoever did it).
+            ...(config.BOUNTY_MODE === 'direct' && w.wallets.solana && { solanaWallet: w.wallets.solana }),
             fetchedAt: Date.now(),
           };
         });

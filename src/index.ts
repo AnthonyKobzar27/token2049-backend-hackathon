@@ -16,6 +16,7 @@ import { createPoller } from './jobs/poller';
 import { mountMasumi } from './masumi/api';
 import { createBuyer } from './masumi/buyer';
 import { createIdentity } from './identity';
+import { bindBountyWallets, bountyWorkerOf } from './bounty/identity';
 import { mountIdentity } from './identity/api';
 import { createEscrowProvider } from './payments';
 import { mountSolanaPay } from './payments/solana-pay';
@@ -55,7 +56,9 @@ registerTelegramExtension(bounty.telegram);
 const registry = createRegistry({ sources, store, bus, config });
 const suitability = createSuitabilityScorer({ store, config });
 // Worker credential and on-chain reputation (Cardano); null without BLOCKFROST_PROJECT_ID + CARDANO_MINT_MNEMONIC.
-const identity = createIdentity({ store, bus, config });
+const identity = createIdentity({ store, bus, config, workerOf: (b) => bountyWorkerOf(bounty.board, b) });
+// Bounty workers' Cardano wallets receive their credential and reputation (bound once, never overwritten).
+if (identity) bindBountyWallets(bounty.board, identity.registry);
 // Veridian (KERI ACDC) verified-worker credentials; null without KERIA settings.
 const veridian = createVeridian({ config, store });
 // Both feed one cache-only signal per worker: router boost and the 'verified' label.

@@ -182,7 +182,7 @@ export function createIdentityRegistry(deps: RegistryDeps): IdentityRegistry {
         // Only what the chain confirmed counts as verified; the local mirror fills in until the first read lands.
         const verified = !!check && check.status.valid && check.status.bound;
         const rep = check?.status.reputation ?? reg.reputationOf(id);
-        const sig: OnChainSignal = { verified, jobsCompleted: rep.jobsCompleted };
+        const sig: OnChainSignal = { verified, jobsCompleted: rep.jobsCompleted, ...(verified && { cardano: true }) };
         const avg = avgRating(rep);
         if (avg !== undefined) sig.avgRating = avg;
         out.set(id, sig);

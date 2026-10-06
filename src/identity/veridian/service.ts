@@ -314,6 +314,7 @@ export function combineSignals(...sources: Array<{ signals(ids: string[]): Map<s
           const merged: OnChainSignal = { verified: prev.verified || sig.verified, jobsCompleted: best.jobsCompleted };
           if (best.avgRating !== undefined) merged.avgRating = best.avgRating;
           if (prev.veridian || sig.veridian) merged.veridian = true;
+          if (prev.cardano || sig.cardano) merged.cardano = true;
           out.set(id, merged);
         }
       }

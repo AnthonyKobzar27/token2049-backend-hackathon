@@ -59,7 +59,8 @@ export function createWatcher(deps: ApiDeps, payments: PaymentClient | undefined
         patchPayment(fresh.id, { resultSubmittedAt: now(), onChainState: 'ResultDeadlineMissed' });
         return;
       }
-      const hash = resultHash(resultString(fresh), p.identifierFromPurchaser);
+      // A QA-verified result is submitted under the hash its escrow release carries (MIP-004 over its payload).
+      const hash = fresh.result?.verifiedResult?.hash ?? resultHash(resultString(fresh), p.identifierFromPurchaser);
       const state = await payments.getPayment(p.blockchainIdentifier);
       if (!state.resultSubmitted) await payments.submitResult(p.blockchainIdentifier, hash);
       patchPayment(fresh.id, { resultSubmittedAt: now(), resultHash: hash });
