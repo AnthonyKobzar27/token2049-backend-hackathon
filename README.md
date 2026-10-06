@@ -35,14 +35,20 @@ Sokosumi / any Masumi agent ─┐
 Telegram bot                 ├─> HAAS agent API (MIP-003)
 x402 client (Cardano/Solana) ─┘     start_job · status · provide_input
                                         │
-                                   Router: search -> normalise -> filter -> rank -> explain
-                                        │
+                              Scope -> "Can an AI agent do it?"
+                                 │ yes                │ no, or the AI attempt fails / times out
+                     Hire a Masumi AI agent           │
+                     (MIP-003, paid on Cardano)       │
+                                                      │
+                     Router: search -> normalise -> filter -> rank -> explain
+                                                      │
      ┌────────────────┬─────────────────┼──────────────────────────┬───────────────────┐
  Freelancer.com    Upwork          RentAHuman        Fiverr · PeoplePerHour · Guru   Prolific
   official API   GraphQL API      official API     (· Upwork) read in the operator's  participant pool:
                                                      own browser                     draft study, approve to publish
 ```
 
+- **AI first.** A fast model (with a keyword fallback) decides whether the work is digital. If it is, HAAS hires another Masumi agent: it starts a MIP-003 job, locks the fee through the Masumi payment service (skipped for free/demo agents), polls for the result and checks its MIP-004 hash, all within a time budget (default 60s). Anything that needs a person, or any AI attempt that fails or runs out of time, goes to the human router below. The job result records `path: "ai"` or `"human"`.
 - **Front doors.** A standard Masumi agent API (MIP-003), a Telegram bot for people, and an x402 pay-per-request endpoint for agents that don't speak Masumi.
 - **Sources.** Official APIs where they exist. Platforms without one are read in the operator's own logged-in Chrome at human pace; if a site asks for a human check, HAAS stops and asks the operator. It does not solve challenges or disguise itself.
 - **Payments.**
