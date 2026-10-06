@@ -46,11 +46,12 @@ x402 client (Cardano)        ─┘     start_job · status · provide_input
 - **Sources.** Official APIs where they exist. Platforms without one are read in the operator's own logged-in Chrome at human pace; if a site asks for a human check, HAAS stops and asks the operator. It does not solve challenges or disguise itself.
 - **Payments.**
   - *Job fee on Cardano*: through the Masumi Payment Service, or x402 on Cardano Preprod.
-  - *Booking budget on Solana*: the hirer's budget is held in USDC per booking, released when the delivery is accepted and refunded on cancellation.
+  - *Booking budget on Solana*: the hirer locks the budget in USDC in an on-chain escrow per booking, released when the delivery is verified and refunded on cancellation or timeout. See [Booking budget on Solana](#booking-budget-on-solana).
 
 ## Honest limits
 
-- Freelancer platforms pay their sellers in fiat and forbid paying them elsewhere, so the Solana escrow protects the **hirer's** money; the operator fronts the platform payment and is repaid on release. The escrow is a server-held vault, not an on-chain program.
+- Freelancer platforms pay their sellers in fiat and forbid paying them elsewhere, so the Solana escrow protects the **hirer's** money; the operator fronts the platform payment and is repaid on release. A worker who publishes a Solana wallet (RentAHuman) is paid directly instead.
+- The escrow program compiles and its IDL is checked against the compiler output, but it has not been deployed from this repository yet: see `programs/haas-escrow/README.md`.
 - Reading Fiverr with automation is against Fiverr's rules and can get an account suspended. It is opt-in, and booking there is always finished by a person.
 - Coverage of sites without an API depends on that browser session not being blocked. Results are cached so a blocked site degrades to slightly stale listings.
 
@@ -78,6 +79,26 @@ pnpm start
 
 Secrets and the database live in `~/.haas/`, outside the repository.
 
+## Booking budget on Solana
+
+`ESCROW_PROVIDER` picks how the hirer's budget is held:
+
+| Value | What holds the money |
+|---|---|
+| `solana-program` | The `haas-escrow` Anchor program (`programs/haas-escrow`): one PDA per booking, USDC in a vault the PDA owns. |
+| `solana-vault` (or `solana`) | A wallet derived per booking from the operator key, held by the server. Fallback. |
+| `memory` | Nothing; deposits are instant. Development only. |
+
+With `solana-program` the flow is:
+
+1. **Lock.** When a booking is created, HAAS shows a Solana Pay QR (`escrow.payUrl`, also served as `/solana-pay/qr/<bookingId>.png`). It is a [transaction request](https://docs.solanapay.com/spec#specification-transaction-request): the hirer's wallet POSTs its address to `/solana-pay/escrow/<bookingId>` and receives one `initialize_and_deposit` transaction to sign. The escrow fixes the amount, the payee and a deadline.
+2. **Detect.** `BookingService.tick` reads the escrow account. A full deposit in the right mint, to the right payee, with at least the agreed deadline moves the booking on to the `book` approval; anything else is refunded.
+3. **Release.** The QA step calls `bookings.releaseOnVerified(bookingId, resultHash)` once a delivery is verified. HAAS (the escrow's `authority`) signs `release(result_hash)`, which pays the payee and records the hash of the delivery on chain. The payee is the worker's wallet when their profile publishes one; otherwise the operator, who pays the platform in fiat on the hirer's behalf and is reimbursed by the escrow.
+4. **Timeouts** (`tick`). Not funded within `ESCROW_DEPOSIT_TIMEOUT_MIN`: booking cancelled, nothing to return. Funded but no accepted delivery by the deadline: refunded to the hirer. After the deadline the program lets **anyone** refund, so the hirer's money does not depend on the HAAS server.
+5. **Record.** Every transaction is kept on the escrow record (`txs`, with devnet explorer links), and `escrow.updated` / `escrow.timeout` events reach the channels.
+
+The deadline is the brief's delivery window (or `ESCROW_DELIVERY_DAYS`) plus `ESCROW_GRACE_HOURS` for review; `ESCROW_DEADLINE_MIN` overrides it for demos. `pnpm spike:solana` runs lock, release, cancel and timeout refund on devnet against the deployed program (`--vault` for the vault).
+
 ## Layout
 
 | Path | What it holds |
@@ -88,5 +109,6 @@ Secrets and the database live in `~/.haas/`, outside the repository.
 | `src/masumi/` | MIP-003 API and Masumi payments |
 | `src/channels/`, `src/agent/` | Telegram bot, brief intake, liaison between hirer and freelancer |
 | `src/approvals/` | Approval gate and autonomy policy |
-| `src/payments/` | Solana escrow and the x402 paywall |
+| `src/payments/` | Solana escrow (program client, Solana Pay endpoint, vault fallback) and the x402 paywall |
+| `programs/haas-escrow/` | The on-chain escrow program (Anchor) and its IDL |
 | `src/domain/` | Shared types and module contracts |
