@@ -10,19 +10,24 @@ import type { Brief, FreelancerProfile, SourceStatus } from '../domain/types';
 
 const norm = (s: string | undefined): string => (s ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 
-/** Stable across ordering and case: task, sorted skills, location, language. */
+/** What sources filter or price on besides the words: a brief that differs here gets different results. */
+const scope = (brief: Brief) => [brief.remoteOk, brief.budgetUsd ?? null, brief.radiusKm ?? null, brief.hoursNeeded ?? null];
+
+/** Stable across ordering and case: task, sorted skills, location, language and scope. */
 export function queryKey(brief: Brief): string {
   const skills = brief.skills.map(norm).sort();
-  return createHash('sha256').update(JSON.stringify([norm(brief.task), skills, norm(brief.location), norm(brief.language)])).digest('hex').slice(0, 32);
+  return createHash('sha256').update(JSON.stringify([norm(brief.task), skills, norm(brief.location), norm(brief.language), ...scope(brief)])).digest('hex').slice(0, 32);
 }
 
 /**
  * Looser key: skills, location and language without the task wording. Lets a rephrased brief
  * (the intake model words the task differently each time) still hit a warm cache.
  */
-export function skillsKey(brief: Brief): string {
+export function skillsKey(brief: Brief): string | null {
   const skills = brief.skills.map(norm).sort();
-  return `s:${createHash('sha256').update(JSON.stringify([skills, norm(brief.location), norm(brief.language)])).digest('hex').slice(0, 30)}`;
+  // Without skills only the task wording tells briefs apart: no fallback, or every such brief would share one entry.
+  if (skills.length === 0) return null;
+  return `s:${createHash('sha256').update(JSON.stringify([skills, norm(brief.location), norm(brief.language), ...scope(brief)])).digest('hex').slice(0, 30)}`;
 }
 
 /** Parses "freelancer:8000, rentahuman:5000". */
@@ -69,7 +74,8 @@ export function createRegistry(deps: { sources: FreelancerSource[]; store: Store
   const cacheGet = (source: string, keys: string[], maxAgeMs: number): FreelancerProfile[] | null => {
     for (const k of keys) {
       const hit = safe(() => store.getCachedProfiles(source, k, maxAgeMs));
-      if (hit) return hit;
+      // An empty answer counts only for this exact brief, never as another wording's results.
+      if (hit && (hit.length > 0 || k === keys[0])) return hit;
     }
     return null;
   };
@@ -133,11 +139,11 @@ export function createRegistry(deps: { sources: FreelancerSource[]; store: Store
     // Rephrased brief or expired entry: serve it now, refresh behind (except in a pinned demo).
     const stale = cacheGet(source.name, keys, Number.MAX_SAFE_INTEGER);
     if (stale) {
-      const exactExpired = !!cacheGet(source.name, keys.slice(0, 1), Number.MAX_SAFE_INTEGER);
       const pinned = config.DEMO_MODE;
       if (!pinned) fetchLive(source, brief, keys, limit, background);
       progress(`${source.name}: ${stale.length} profiles (cached${pinned ? '' : ', refreshing'})`);
-      return finish(stale, { ok: true, cached: true, ...(!pinned && exactExpired && { stale: true }) });
+      // Expired, or found under the looser key (another wording of the brief): not this brief's fresh answer.
+      return finish(stale, { ok: true, cached: true, ...(!pinned && { stale: true }) });
     }
 
     if (source.kind === 'browser') {
@@ -171,7 +177,8 @@ export function createRegistry(deps: { sources: FreelancerSource[]; store: Store
       while (inflight.size > 0) await Promise.allSettled([...inflight.values()]);
     },
     async searchAll(brief, opts) {
-      const keys = [queryKey(brief), skillsKey(brief)];
+      const loose = skillsKey(brief);
+      const keys = loose ? [queryKey(brief), loose] : [queryKey(brief)];
       const budget = Math.max(0, Math.min(opts.budgetMs ?? config.SEARCH_BUDGET_MS, config.DEMO_MODE ? config.DEMO_BUDGET_MS : Number.MAX_SAFE_INTEGER));
       let timer: ReturnType<typeof setTimeout> | undefined;
       const deadline = new Promise<'deadline'>((resolve) => {

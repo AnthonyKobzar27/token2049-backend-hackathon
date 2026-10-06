@@ -96,9 +96,25 @@ describe('registry', () => {
     await reg.searchAll(brief, { limitPerSource: 5 });
     const r = await reg.searchAll({ ...brief, task: 'A logo for my bakery' }, { limitPerSource: 5 });
     expect(r.profiles.map((p) => p.id)).toEqual(['t:1']);
-    expect(r.sources[0]).toMatchObject({ ok: true, cached: true });
+    expect(r.sources[0]).toMatchObject({ ok: true, cached: true, stale: true });
     await reg.settle();
     expect(search).toHaveBeenCalledTimes(2); // refreshed behind for the new wording
+  });
+
+  it('never serves one brief another brief\'s results: no skills, different scope, empty answers', async () => {
+    const search = vi.fn(async (b: Brief) => (b.task.includes('empty') ? [] : [prof(b.task.replace(/\W+/g, '_'))]));
+    const reg = createRegistry({ sources: [source('t', search)], store: memStore().store, bus: createEventBus(), config: testConfig() });
+    const noSkills = { task: 'logo design', skills: [], remoteOk: true };
+    await reg.searchAll(noSkills, { limitPerSource: 5 });
+    const other = await reg.searchAll({ ...noSkills, task: 'translate a contract to German' }, { limitPerSource: 5 });
+    expect(other.profiles.map((p) => p.id)).toEqual(['t:translate_a_contract_to_German']);
+    // Same words and skills, but on site: sources filter differently, so it is a different query.
+    const onSite = await reg.searchAll({ ...brief, remoteOk: false }, { limitPerSource: 5 });
+    expect(onSite.sources[0]).toMatchObject({ cached: false });
+    // An empty answer for one wording is not served for another.
+    await reg.searchAll({ ...brief, task: 'empty please' }, { limitPerSource: 5 });
+    const rephrased = await reg.searchAll({ ...brief, task: 'something else' }, { limitPerSource: 5 });
+    expect(rephrased.profiles.length).toBe(1);
   });
 
   it('times out slow sources, aborting the signal', async () => {
