@@ -19,11 +19,6 @@ export interface BountyModule {
   telegram: ReturnType<typeof workerTelegramExtension>;
   /** Mounts /w/:token and /bounty/* on the express app. */
   mount(app: Express): void;
-  /**
-   * Hands bounties that passed the check to the booking service for acceptance (which asks the
-   * 'accept' approval, then pays the worker and releases escrow). Call once the service exists.
-   */
-  attach(deps: { accept(bookingId: string): Promise<unknown> }): void;
   /** Checks a submitted bounty now: verified, sent back for a revision, or rejected. */
   review(bountyId: string): Promise<void>;
   /** Resolves when every check and acceptance started so far has finished. For tests and scripts. */
@@ -61,9 +56,6 @@ export function createBountyModule(deps: {
     const q = p.catch((err) => console.error('[bounty]', err instanceof Error ? err.message : err)).finally(() => inflight.delete(q));
     inflight.add(q);
   };
-  let accept: ((bookingId: string) => Promise<unknown>) | undefined;
-  const accepting = new Set<string>();
-
   const reviewing = new Set<string>();
 
   async function review(bountyId: string): Promise<void> {
@@ -93,12 +85,8 @@ export function createBountyModule(deps: {
 
   const offBus = bus.on((e) => {
     if (e.type === 'bounty.updated' && e.bounty.status === 'submitted') track(review(e.bounty.bountyId));
-    if (e.type === 'booking.updated' && e.booking.platform === 'bounty' && e.booking.status === 'delivered' && accept && !accepting.has(e.booking.id)) {
-      const id = e.booking.id;
-      const run = accept;
-      accepting.add(id);
-      track(run(id).finally(() => accepting.delete(id)));
-    }
+    // A bounty that passed this check becomes the booking's delivery; the booking service then runs
+    // its own QA, asks the 'accept' approval, pays the worker (acceptDelivery) and releases escrow.
   });
 
   return {
@@ -106,9 +94,6 @@ export function createBountyModule(deps: {
     source,
     telegram: workerTelegramExtension(board, (send) => tg.bind(send)),
     mount: (app) => mountWorkerPages(app, { board }),
-    attach: (d) => {
-      accept = d.accept;
-    },
     review,
     idle: async () => {
       while (inflight.size) await Promise.all([...inflight]);

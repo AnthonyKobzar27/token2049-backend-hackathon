@@ -43,6 +43,25 @@ export interface Brief {
   radiusKm?: number;
   /** Overrides the router's task-type inference, which picks the scoring weights. */
   taskType?: TaskType;
+  /** What a correct delivery must contain; used by the result verifier (QA) before escrow is released. */
+  expectedResult?: ExpectedResult;
+}
+
+/** One field a structured delivery must carry, e.g. a booking reference or an appointment time. */
+export interface ExpectedField {
+  name: string;
+  type?: 'text' | 'number' | 'date' | 'time' | 'datetime' | 'url' | 'email' | 'reference' | 'boolean';
+  /** Default true. */
+  required?: boolean;
+  /** Regular expression the value must match. */
+  pattern?: string;
+  description?: string;
+}
+
+export interface ExpectedResult {
+  fields?: ExpectedField[];
+  /** Plain acceptance criteria the rubric judges, e.g. "photo shows the shop front". */
+  criteria?: string[];
 }
 
 /** A specific day and/or time window. */
@@ -297,6 +316,12 @@ export type BookingStatus =
   | 'in_progress'
   | 'delivered'
   | 'in_revision'
+  /** QA of a delivery is running. */
+  | 'verifying'
+  /** QA passed; waiting for the release approval. */
+  | 'verified'
+  /** QA failed after the one revision; no payout, escrow is refunded. */
+  | 'rejected'
   | 'completed'
   | 'cancelled'
   | 'refunded';
@@ -318,6 +343,10 @@ export interface Booking {
   note?: string;
   /** What the freelancer delivered, as last reported by the platform. */
   delivery?: BookingDelivery;
+  /** Latest QA report on the delivery. */
+  verification?: VerificationReport;
+  /** Hash of the verified result the escrow was released against (set on completion after QA). */
+  resultHash?: string;
   createdAt: Ms;
   updatedAt: Ms;
 }
@@ -354,6 +383,42 @@ export interface PlatformBookingStatus {
   deliveryData?: Record<string, unknown>;
   /** One-line summary of the delivery. */
   deliverySummary?: string;
+}
+
+// ------------------------------------------------------------------- QA
+
+/** What the freelancer handed over, as checked by the result verifier. */
+export interface DeliveredResult {
+  text?: string;
+  urls?: string[];
+  fields?: Record<string, unknown>;
+}
+
+export type VerificationVerdict = 'pass' | 'fail' | 'needs_human';
+
+export interface VerificationCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+  /** 'rule' for deterministic checks, 'llm' for rubric items, 'human' for the hirer's review. */
+  by?: 'rule' | 'llm' | 'human';
+}
+
+export interface VerificationReport {
+  verdict: VerificationVerdict;
+  /** 0 to 1. */
+  score: number;
+  checks: VerificationCheck[];
+  summary: string;
+  /** MIP-004 style hash of the delivered result; the same value goes to Masumi and the escrow release. */
+  resultHash: string;
+  /** sha256 of the canonical delivery, to tell a new delivery from a re-read of the old one. */
+  deliveryHash: string;
+  /** 1 for the first QA run on this booking. */
+  attempt: number;
+  model?: string;
+  ms: number;
+  at: Ms;
 }
 
 // --------------------------------------------------------- conversations
@@ -447,6 +512,12 @@ export type HaasEvent =
   | { type: 'approval.requested'; approval: Approval }
   | { type: 'approval.resolved'; approval: Approval }
   | { type: 'conversation.message'; message: ConversationMessage }
+  | { type: 'verification.started'; bookingId: string; jobId: string; attempt: number }
+  | { type: 'verification.completed'; booking: Booking; report: VerificationReport }
+  /** QA failed and the freelancer was asked to fix the listed checks. */
+  | { type: 'verification.revision_requested'; booking: Booking; report: VerificationReport; text: string }
+  /** QA failed twice (or the hirer refused the redo): no payout, refund follows. */
+  | { type: 'verification.rejected'; booking: Booking; report: VerificationReport }
   /** A person must act outside the app, e.g. solve a challenge in the browser. */
   | { type: 'operator.attention'; source: string; message: string; url?: string }
   /** A first-party bounty changed state. 'expired' carries the stage that timed out (escrow refunds on it). */

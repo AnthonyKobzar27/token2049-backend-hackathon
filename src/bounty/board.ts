@@ -320,9 +320,10 @@ export function createBountyBoard(deps: BoardDeps) {
   }
 
   /** Verification asked for changes: back to the worker with the feedback and a fresh deadline. */
+  /** Sends a submission back; also from 'verified', when the booking's own QA or the hirer turns it down. */
   function requestRevision(bountyId: string, feedback: string, qa?: QaVerdict): Outcome {
     const revisions = (get(bountyId)?.revisions ?? 0) + 1;
-    const res = transition(bountyId, 'claimed', { feedback, revisions, submitBy: clock() + config.BOUNTY_SUBMIT_MIN * 60_000, ...(qa && { qa }) }, { from: ['submitted'] });
+    const res = transition(bountyId, 'claimed', { feedback, revisions, submitBy: clock() + config.BOUNTY_SUBMIT_MIN * 60_000, ...(qa && { qa }) }, { from: ['submitted', 'verified'] });
     if (res.ok && res.bounty.workerId) tell(res.bounty.workerId, res.bounty, 'revision', `Please fix task ${res.bounty.code}: ${feedback}`);
     return res;
   }

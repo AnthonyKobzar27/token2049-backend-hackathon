@@ -57,8 +57,6 @@ const escrow = createEscrowProvider({ store, config });
 const bookings = createBookingService({ store, bus, registry, escrow, gate, config });
 const delegate = createDelegator({ config, bus, classifier: createClassifier({ config }), buyer: createBuyer(config) });
 const jobs = createJobService({ store, bus, router, bookings, config, delegate });
-// A bounty that passed its check goes to acceptance ('accept' approval, then payout and escrow release).
-bounty.attach({ accept: (id) => bookings.accept(id) });
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));

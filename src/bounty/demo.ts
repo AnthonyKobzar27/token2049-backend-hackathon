@@ -36,7 +36,6 @@ export function createDemoStack(opts: { config: Config; workers: WorkerInput[]; 
   const escrow = createEscrowProvider({ store, config });
   const bookings = createBookingService({ store, bus, registry, escrow, gate, config });
   const jobs = createJobService({ store, bus, router, bookings, config });
-  bounty.attach({ accept: (id) => bookings.accept(id) });
 
   // The operator: approves every binding action (in production this is a tap in Telegram).
   const offApprove =

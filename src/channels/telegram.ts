@@ -18,6 +18,7 @@ import {
   jobResult,
   parseCallback,
   shortlistHeader,
+  verificationLine,
 } from './format';
 
 export interface Button {
@@ -364,6 +365,11 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
         if (!operatorId) return;
         const a = event.approval;
         await api.send(operatorId, approvalRequest(a), [[{ text: 'Approve', data: callbackData({ kind: 'approve', approvalId: a.id }) }, { text: 'Deny', data: callbackData({ kind: 'deny', approvalId: a.id }) }]]);
+        return;
+      }
+      case 'verification.completed': {
+        const chat = chatOfJob(event.booking.jobId);
+        if (chat) await api.send(chat, verificationLine(event.booking, event.report));
         return;
       }
       case 'operator.attention': {
