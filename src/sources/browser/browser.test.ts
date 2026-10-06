@@ -95,6 +95,11 @@ describe('sites', () => {
     expect(SITES.fiverr!.profileUrlPattern.test('https://www.fiverr.com/ana_pop/design-a-modern-logo?x=1')).toBe(true);
     expect(SITES.fiverr!.profileUrlPattern.test('https://www.fiverr.com/categories/graphics-design')).toBe(false);
     expect(SITES.guru!.profileUrlPattern.test('https://www.guru.com/freelancers/jane-doe')).toBe(true);
+    const up = SITES['upwork-browser']!;
+    expect(up.platform).toBe('upwork');
+    expect(up.searchUrl({ task: 't', skills: ['react'], remoteOk: true })).toBe('https://www.upwork.com/nx/search/talent/?q=react');
+    expect(up.profileUrlPattern.test('https://www.upwork.com/freelancers/~01a1b2c3d4e5f6a7b8')).toBe(true);
+    expect(up.profileUrlPattern.test('https://www.upwork.com/nx/search/talent/?q=react')).toBe(false);
   });
 });
 

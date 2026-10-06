@@ -61,6 +61,18 @@ export const SITES: Record<string, SiteDef> = {
       'Guru freelancer search results. Each card is a freelancer: name, headline, location, hourly rate ("$xx/hr"), earnings, rating and feedback count, skills. Rates are hourly.',
     profileUrlPattern: /^https:\/\/www\.guru\.com\/freelancers\/[^/?#]+/i,
   },
+  // Fallback for operators without Upwork API access; named apart from the API source "upwork".
+  // Same caveats as Fiverr: reading Upwork with automation is against its terms, so it is opt-in,
+  // runs at human pace in the operator's own logged-in Chrome, and stops at the first human check.
+  'upwork-browser': {
+    name: 'upwork-browser',
+    platform: 'upwork',
+    origin: 'https://www.upwork.com',
+    searchUrl: (b) => `https://www.upwork.com/nx/search/talent/?q=${enc(queryFor(b))}`,
+    hints:
+      'Upwork talent search results. Each card is one freelancer: name (first name and last initial), title, location, hourly rate ("$xx/hr"), Job Success percentage, badges (Top Rated, Top Rated Plus, Rising Talent), total earned, and skills. Rates are hourly. Put the Job Success percentage and badge in the level field. Ratings in stars are usually not shown on cards.',
+    profileUrlPattern: /^https:\/\/www\.upwork\.com\/freelancers\/~[0-9a-z]+/i,
+  },
 };
 
 export const siteFor = (name: string): SiteDef | undefined => SITES[name.trim().toLowerCase()];

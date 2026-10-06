@@ -58,6 +58,27 @@ const schema = z.object({
   FREELANCER_SANDBOX_TOKEN: optional,
   RENTAHUMAN_API_KEY: optional,
 
+  /** Upwork GraphQL API: a user token, or an Enterprise app's client credentials. */
+  UPWORK_ACCESS_TOKEN: optional,
+  UPWORK_CLIENT_ID: optional,
+  UPWORK_CLIENT_SECRET: optional,
+  /** Organization id sent as X-Upwork-API-TenantId, when the token has several. */
+  UPWORK_TENANT_ID: optional,
+  /** Upwork's own search timeout, kept below SOURCE_TIMEOUT_MS. */
+  UPWORK_TIMEOUT_MS: int(8_000),
+
+  /** Prolific participant pool. Unset token disables it. */
+  PROLIFIC_API_TOKEN: optional,
+  /** Project new draft studies go into (Prolific workspaces). */
+  PROLIFIC_PROJECT_ID: optional,
+  /** Task link used when the brief carries none (survey, labeling tool). */
+  PROLIFIC_TASK_URL: optional,
+  PROLIFIC_TIMEOUT_MS: int(5_000),
+  /** Reward rate offered to participants, USD per hour (Prolific's minimum is about 8). */
+  PROLIFIC_HOURLY_REWARD_USD: z.coerce.number().default(12),
+  PROLIFIC_DEFAULT_PLACES: int(20),
+  PROLIFIC_DEFAULT_MINUTES: int(10),
+
   /** Chrome DevTools endpoint of the operator's own logged-in browser. */
   CHROME_CDP_URL: z.string().default('http://127.0.0.1:9222'),
   /** Comma-separated browser-read sites, e.g. "fiverr,peopleperhour". */

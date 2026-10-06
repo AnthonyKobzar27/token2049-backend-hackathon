@@ -37,9 +37,10 @@ x402 client (Cardano/Solana) ─┘     start_job · status · provide_input
                                         │
                                    Router: search -> normalise -> filter -> rank -> explain
                                         │
-        ┌──────────────┬────────────────┼─────────────────┐
-   Freelancer.com   RentAHuman     Fiverr · PeoplePerHour · Guru
-    official API    official API   read in the operator's own browser
+     ┌────────────────┬─────────────────┼──────────────────────────┬───────────────────┐
+ Freelancer.com    Upwork          RentAHuman        Fiverr · PeoplePerHour · Guru   Prolific
+  official API   GraphQL API      official API     (· Upwork) read in the operator's  participant pool:
+                                                     own browser                     draft study, approve to publish
 ```
 
 - **Front doors.** A standard Masumi agent API (MIP-003), a Telegram bot for people, and an x402 pay-per-request endpoint for agents that don't speak Masumi.
@@ -48,15 +49,27 @@ x402 client (Cardano/Solana) ─┘     start_job · status · provide_input
   - *Job fee*: through the Masumi Payment Service on Cardano, or x402 in stablecoin (USDM on Cardano Preprod or USDC on Solana devnet; one setting picks the chains, see [docs/X402.md](docs/X402.md)).
   - *Booking budget on Solana*: the hirer's budget is held in USDC per booking, released when the delivery is accepted and refunded on cancellation.
 
+| Source | How | Credentials | Booking |
+|---|---|---|---|
+| Freelancer.com | Official REST API | None for search; `FREELANCER_SANDBOX_TOKEN` for sandbox writes | Hire Me project (sandbox only) |
+| RentAHuman | Official REST API | None; `RENTAHUMAN_API_KEY` raises limits | Handoff |
+| Upwork | Official GraphQL API (`freelancerProfileSearchRecords`, enriched with `freelancerProfileByProfileKey`) | `UPWORK_ACCESS_TOKEN`, or `UPWORK_CLIENT_ID`/`SECRET` (client credentials, Enterprise only). Needs an Upwork-approved API key | Handoff to the profile; HAAS never sends offers |
+| Prolific | Official REST API, as a participant pool: one candidate priced as rewards plus fee, with time to fill and pool size | `PROLIFIC_API_TOKEN` (researcher account) | Draft study; publishing needs a `pay` approval; submissions become the delivery |
+| Fiverr, PeoplePerHour, Guru, Upwork | Read in the operator's Chrome (`BROWSER_SITES`, Upwork as `upwork-browser`) | Operator's own logins | Handoff in the browser |
+
+Each source has a search timeout (`SOURCE_TIMEOUT_MS`, and lower ones for Upwork and Prolific), so a slow platform never holds up the shortlist.
+
 ## Honest limits
 
 - Freelancer platforms pay their sellers in fiat and forbid paying them elsewhere, so the Solana escrow protects the **hirer's** money; the operator fronts the platform payment and is repaid on release. The escrow is a server-held vault, not an on-chain program.
-- Reading Fiverr with automation is against Fiverr's rules and can get an account suspended. It is opt-in, and booking there is always finished by a person.
+- Reading Fiverr or Upwork with automation is against their rules and can get an account suspended. It is opt-in, and booking there is always finished by a person.
+- Upwork's API is gated: Upwork reviews each API key request, and the client-credentials grant is for Enterprise accounts. The adapter follows Upwork's published GraphQL schema but has not been run against the live API.
+- Prolific suits microtasks only (surveys, labeling, user tests, short checks). Answers stay in the hirer's own task tool; HAAS sees submissions and completion codes. The service fee is estimated high; the draft study shows the exact cost before anything is published.
 - Coverage of sites without an API depends on that browser session not being blocked. Results are cached so a blocked site degrades to slightly stale listings.
 
 ## Status
 
-Work in progress. Each module has unit tests; live search works today on Freelancer.com and RentAHuman without credentials. The Telegram bot, the language-model calls, Masumi payments, x402 and Fiverr reading are written but have not yet been run against live services.
+Work in progress. Each module has unit tests; live search works today on Freelancer.com and RentAHuman without credentials. Upwork and Prolific are written and unit-tested against fixtures in the published API shapes but need credentials to run live. The Telegram bot, the language-model calls, Masumi payments, x402 and Fiverr reading are written but have not yet been run against live services.
 
 ## Running it
 

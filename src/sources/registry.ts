@@ -79,7 +79,8 @@ export function createRegistry(deps: { sources: FreelancerSource[]; store: Store
     const id = `${source.name}|${keys[0]}`;
     let p = inflight.get(id);
     if (!p) {
-      const cap = timeouts.get(source.name) ?? config.SOURCE_TIMEOUT_MS;
+      // An explicit SOURCE_TIMEOUTS entry wins; otherwise the lower of the source's own cap and SOURCE_TIMEOUT_MS.
+      const cap = timeouts.get(source.name) ?? Math.min(config.SOURCE_TIMEOUT_MS, source.timeoutMs && source.timeoutMs > 0 ? source.timeoutMs : Infinity);
       const controller = new AbortController();
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<never>((_, reject) => {

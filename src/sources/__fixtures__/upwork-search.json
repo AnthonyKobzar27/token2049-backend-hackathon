@@ -1,0 +1,53 @@
+{
+  "data": {
+    "freelancerProfileSearchRecords": {
+      "edges": [
+        {
+          "node": {
+            "id": "1424242424242424242",
+            "title": "Senior React & TypeScript Engineer",
+            "description": "I build fast, accessible web apps with React, Next.js and Node.",
+            "shortName": "Ana M.",
+            "ciphertext": "~01a1b2c3d4e5f6a7b8",
+            "lastActiveDateTime": "2026-10-01T09:12:00Z",
+            "totalHourlyJobs": 41,
+            "totalFixedPriceJobs": 12,
+            "topRatedStatus": "top_rated",
+            "avgFeedbackScore": 4.93,
+            "skills": [{ "preferredLabel": "React" }, { "preferredLabel": "TypeScript" }, { "preferredLabel": "Next.js" }],
+            "hourlyRate": { "rawValue": "65.0", "currency": "USD" },
+            "location": { "country": "Portugal", "city": "Lisbon", "state": null }
+          }
+        },
+        {
+          "node": {
+            "id": "1555555555555555555",
+            "title": "Frontend developer (Vue, React)",
+            "description": null,
+            "shortName": "Jonas K.",
+            "ciphertext": "~0199887766554433aa",
+            "totalHourlyJobs": 0,
+            "totalFixedPriceJobs": 0,
+            "topRatedStatus": null,
+            "avgFeedbackScore": 0,
+            "skills": [{ "preferredLabel": "Vue.js" }, { "preferredLabel": "React" }],
+            "hourlyRate": { "rawValue": "40", "currency": "EUR" },
+            "location": { "country": "Germany", "city": "Berlin" }
+          }
+        },
+        {
+          "node": {
+            "id": "1666666666666666666",
+            "title": "React Native developer",
+            "shortName": "Priya S.",
+            "ciphertext": "~01ffeeddccbbaa0011",
+            "skills": [],
+            "hourlyRate": null,
+            "location": null
+          }
+        }
+      ],
+      "totalCount": 3
+    }
+  }
+}
