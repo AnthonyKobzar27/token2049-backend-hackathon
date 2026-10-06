@@ -78,6 +78,8 @@ export function createHaasRunner(deps: { jobs: JobService; timeoutMs: number; po
     }
     if (!cur) throw new Error('job disappeared');
     if (cur.status === 'failed') throw new Error(cur.error ?? 'routing failed');
+    // An AI agent did the work (AI-first delegation): its output is the Task's answer.
+    if (cur.status === 'completed' && cur.result?.path === 'ai') return { result: cur.result.output || cur.result.summary, jobId: job.id };
     const result = formatShortlist(brief, deps.jobs.getShortlist(job.id));
     // Close the check-in: the Task's answer is the shortlist, not a booking.
     if (cur.status === 'awaiting_input') {
