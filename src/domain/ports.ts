@@ -192,7 +192,18 @@ export interface BookingService {
   accept(id: string): Promise<Booking>;
   requestRevision(id: string, text: string): Promise<Booking>;
   cancel(id: string, reason: string): Promise<Booking>;
-  /** Polls escrow deposits and platform status for open bookings. */
+  /**
+   * Called by the delivery QA step once a delivery is verified: accepts it on the
+   * platform, completes the booking and releases escrow with `resultHash` (hex sha256
+   * of the delivery, or any text to be hashed) recorded on chain. Asks the 'accept'
+   * approval unless `preApproved` is set because the caller already obtained it.
+   */
+  releaseOnVerified?(id: string, resultHash: string, opts?: { preApproved?: boolean }): Promise<Booking>;
+  /**
+   * Polls escrow deposits and platform status for open bookings, and enforces the
+   * escrow deadlines: unfunded past the deposit window -> cancelled; funded past the
+   * on-chain deadline without an accepted delivery -> refunded.
+   */
   tick(): Promise<void>;
 }
 
@@ -223,20 +234,30 @@ export interface AutonomyPolicy {
 /**
  * The booking budget. src/payments/index.ts:
  * `createEscrowProvider(deps: { store: Store; config: Config }): EscrowProvider`
- * returns the Solana provider when config.ESCROW_PROVIDER === 'solana', else the memory one.
+ * returns the on-chain program provider for 'solana-program', the server-held vault for
+ * 'solana-vault' (or legacy 'solana'), else the memory one.
  * Providers do not write to the store; the booking service persists what they return.
  */
 export interface EscrowProvider {
   readonly name: string;
   readonly currency: string;
-  /** Prepares a deposit target for this booking. Status 'awaiting_deposit' (memory provider: 'funded'). */
-  create(input: { bookingId: string; amountUsd: number }): Promise<EscrowRecord>;
+  /**
+   * Prepares a deposit target for this booking. Status 'awaiting_deposit' (memory provider: 'funded').
+   * `payee` is the wallet paid on release (default: operator); `deadline` (epoch ms) is when
+   * the hirer can get a refund without anyone's consent (providers that support it).
+   */
+  create(input: { bookingId: string; amountUsd: number; payee?: string; deadline?: number }): Promise<EscrowRecord>;
   /** Re-reads chain state; moves 'awaiting_deposit' to 'funded' when the full amount has arrived. */
   refresh(escrow: EscrowRecord): Promise<EscrowRecord>;
-  /** Pays the operator wallet. */
-  release(escrow: EscrowRecord): Promise<EscrowRecord>;
+  /** Pays the payee (operator wallet unless a payee was set). `resultHash` is recorded where supported. */
+  release(escrow: EscrowRecord, opts?: { resultHash?: string }): Promise<EscrowRecord>;
   /** Returns funds to the payer. */
   refund(escrow: EscrowRecord): Promise<EscrowRecord>;
+  /**
+   * Solana Pay transaction request: builds the unsigned deposit transaction for the
+   * paying wallet `account` (base58). Providers where the payer signs a program call.
+   */
+  buildDepositTransaction?(escrow: EscrowRecord, account: string): Promise<{ transaction: string; message: string }>;
 }
 
 // ----------------------------------------------------- module entry points

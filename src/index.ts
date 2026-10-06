@@ -16,6 +16,7 @@ import { createPoller } from './jobs/poller';
 import { mountMasumi } from './masumi/api';
 import { createBuyer } from './masumi/buyer';
 import { createEscrowProvider } from './payments';
+import { mountSolanaPay } from './payments/solana-pay';
 import { mountX402 } from './payments/x402';
 import { createRouter } from './router/router';
 import { createSuitabilityScorer } from './router/suitability';
@@ -67,6 +68,8 @@ app.get('/health', (_req, res) => {
 bounty.mount(app);
 const masumi = mountMasumi(app, { jobs, store, bus, config });
 mountX402(app, { jobs, store, bus, config });
+// Solana Pay transaction requests for program escrow deposits (the hirer's wallet signs the deposit).
+if (escrow.buildDepositTransaction) mountSolanaPay(app, { store, escrow, config });
 
 const telegram = createTelegram({ jobs, bookings, gate, policy, store, bus, config });
 const liaison = createLiaison({ store, bus, registry, gate, config });

@@ -1,6 +1,6 @@
 import type { Config } from '../config';
 import { assertBookingTransition, canBookingTransition } from '../domain/machine';
-import { newId, now } from '../domain/ids';
+import { newId, now as clockNow } from '../domain/ids';
 import type { ApprovalGate, BookingService, EscrowProvider, EventBus, SourceRegistry, Store } from '../domain/ports';
 import type { Booking, BookingDelivery, BookingStatus, Brief, Candidate, DeliveredResult, EscrowRecord, FreelancerProfile, Job, VerificationReport } from '../domain/types';
 import { deliveryHash, normaliseDelivery } from '../verify/hash';
@@ -16,6 +16,8 @@ export interface BookingDeps {
   config: Config;
   /** QA of deliveries. Defaults to the Claude-backed verifier (needs_human without an API key). */
   verifier?: ResultVerifier;
+  /** Epoch ms; injectable for tests. */
+  now?: () => number;
 }
 
 /** Extra operations on top of the BookingService contract: the QA step between delivery and release. */
@@ -34,8 +36,8 @@ export interface QaControls {
 }
 
 /**
- * An escrow provider that can bind its release to the verified result (e.g. an on-chain program).
- * When present it is used instead of release(); it may return the updated record or nothing (then refresh() is used).
+ * An escrow provider that binds its release to the verified result itself (instead of
+ * release(escrow, { resultHash })); it may return the updated record or nothing (then refresh() is used).
  */
 export interface VerifiedRelease {
   releaseOnVerified(bookingId: string, resultHash: string): Promise<EscrowRecord | void>;
@@ -47,6 +49,8 @@ interface Ctx {
 }
 
 const ctxKey = (id: string) => `booking:${id}:ctx`;
+/** Result hash the release is bound to, kept so a failed release is retried with it. */
+const resultKey = (id: string) => `booking:${id}:result`;
 const deliveryKey = (id: string) => `booking:${id}:delivery`;
 const qaKey = (id: string) => `booking:${id}:qa`;
 /** The second failed QA (the first after the one revision) rejects the delivery. */
@@ -54,12 +58,34 @@ const MAX_QA_FAILURES = 2;
 const EMPTY_BRIEF: Brief = { task: '', skills: [], remoteOk: true };
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const POLLED: BookingStatus[] = ['placed', 'in_progress', 'delivered', 'in_revision'];
-/** States a person may accept from. Not 'verifying': QA is running. */
-const ACCEPTABLE: BookingStatus[] = ['delivered', 'verified', 'placed', 'handoff', 'in_progress'];
+/** States a person (or a verified result) may accept from. Not 'verifying': QA is running. */
+const ACCEPTABLE: BookingStatus[] = ['delivered', 'verified', 'placed', 'handoff', 'in_progress', 'in_revision'];
+
+/** Statuses where the budget is locked and the booking is not settled yet. */
+const HOLDING: BookingStatus[] = ['escrowed', 'awaiting_approval', 'placed', 'handoff', 'in_progress', 'delivered', 'verifying', 'verified', 'in_revision'];
+const BASE58_KEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+const DAY = 24 * HOUR;
+
+/**
+ * Who the escrow pays on release. A worker who publishes a Solana wallet is paid
+ * directly. Otherwise the operator is: most platforms only take card or fiat, so the
+ * operator pays the platform on the hirer's behalf and the escrow reimburses it.
+ */
+export const payeeFor = (profile: FreelancerProfile | undefined): string | undefined =>
+  profile?.solanaWallet && BASE58_KEY.test(profile.solanaWallet) ? profile.solanaWallet : undefined;
+
+/** On-chain escrow deadline: delivery window plus review grace, or the demo override. */
+export function escrowDeadline(config: Config, brief: Brief | undefined, from: number): number {
+  if (config.ESCROW_DEADLINE_MIN > 0) return from + config.ESCROW_DEADLINE_MIN * MIN;
+  return from + (brief?.deadlineDays ?? config.ESCROW_DELIVERY_DAYS) * DAY + config.ESCROW_GRACE_HOURS * HOUR;
+}
 
 export function createBookingService(deps: BookingDeps): BookingService & QaControls {
-  const { store, bus, registry, escrow: provider, gate } = deps;
-  const verifier = deps.verifier ?? createResultVerifier({ config: deps.config });
+  const { store, bus, registry, escrow: provider, gate, config } = deps;
+  const now = deps.now ?? clockNow;
+  const verifier = deps.verifier ?? createResultVerifier({ config });
   /** Bookings being advanced right now, so none is advanced twice concurrently. */
   const busy = new Set<string>();
 
@@ -146,6 +172,13 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
         await refundAndEnd(id, `booking not approved${note ? `: ${note}` : ''}`);
         return;
       }
+      // The approval can take long: do not book against a budget that timed out meanwhile.
+      const still = store.getEscrowByBooking(id);
+      if (need(id).status !== 'awaiting_approval' || still?.status !== 'funded') return;
+      if (still.deadline && now() >= still.deadline) {
+        await expireDelivery(need(id), still);
+        return;
+      }
 
       const source = registry.get(booking.source);
       if (!source?.book) {
@@ -167,9 +200,13 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
   const advanceInBackground = (id: string) =>
     void advance(id).catch((err) => console.error(`[bookings] advance failed for ${id}:`, err));
 
-  async function begin(booking: Booking): Promise<void> {
+  async function begin(booking: Booking, brief: Brief): Promise<void> {
     try {
-      const rec = await provider.create({ bookingId: booking.id, amountUsd: booking.priceUsd });
+      const ctx = JSON.parse(store.getKv(ctxKey(booking.id)) ?? 'null') as Ctx | null;
+      const payee = payeeFor(ctx?.profile ?? store.getProfile(booking.profileId) ?? undefined);
+      const deadline = escrowDeadline(config, brief, now());
+      if (payee) store.updateBooking(booking.id, { payeeWallet: payee });
+      const rec = await provider.create({ bookingId: booking.id, amountUsd: booking.priceUsd, payee, deadline });
       store.insertEscrow(rec);
       bus.emit({ type: 'escrow.updated', escrow: rec });
       const updated = store.updateBooking(booking.id, { escrowId: rec.id });
@@ -184,14 +221,28 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
   async function release(id: string): Promise<void> {
     const esc = store.getEscrowByBooking(id);
     if (!esc || esc.status !== 'funded') return;
-    const hash = need(id).resultHash;
+    // The verified result hash goes on chain with the release (and is kept for a retry by tick).
+    const hash = need(id).resultHash ?? store.getKv(resultKey(id)) ?? undefined;
     const bound = provider as EscrowProvider & Partial<VerifiedRelease>;
     if (hash && typeof bound.releaseOnVerified === 'function') {
       const rec = await bound.releaseOnVerified(id, hash);
       saveEscrow(rec ?? (await provider.refresh(esc)));
       return;
     }
-    saveEscrow(await provider.release(esc));
+    saveEscrow(await provider.release(esc, hash ? { resultHash: hash } : {}));
+  }
+  /** Never funded within the deposit window: cancel the booking, nothing to return. */
+  function expireDeposit(booking: Booking, esc: EscrowRecord): void {
+    const reason = `escrow deposit not received within ${config.ESCROW_DEPOSIT_TIMEOUT_MIN} min`;
+    const saved = saveEscrow({ ...esc, status: 'failed', error: reason, updatedAt: now() });
+    const cancelled = move(booking.id, 'cancelled', { note: reason });
+    bus.emit({ type: 'escrow.timeout', kind: 'deposit_expired', booking: cancelled, escrow: saved });
+  }
+
+  /** Funded but no accepted delivery by the on-chain deadline: return the budget to the hirer. */
+  async function expireDelivery(booking: Booking, esc: EscrowRecord): Promise<void> {
+    const ended = await refundAndEnd(booking.id, 'delivery was not accepted before the escrow deadline');
+    bus.emit({ type: 'escrow.timeout', kind: 'delivery_expired', booking: ended, escrow: store.getEscrowByBooking(booking.id) ?? esc });
   }
 
   // ------------------------------------------------------------------ QA
@@ -207,13 +258,19 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
   }
 
   /** Acceptance on the platform, 'completed', then escrow release bound to the verified result hash. */
-  async function finishAccept(id: string): Promise<Booking> {
+  async function finishAccept(id: string, resultHash?: string): Promise<Booking> {
     const booking = need(id);
+    const esc = store.getEscrowByBooking(id);
+    // Past the on-chain deadline the program only refunds; tick does that.
+    if (esc?.status === 'funded' && esc.deadline && now() >= esc.deadline) throw new Error('the escrow deadline has passed; the budget can only be refunded');
+    const hash = resultHash ?? booking.verification?.resultHash;
+    if (hash) store.setKv(resultKey(id), hash);
     const source = registry.get(booking.source);
     if (source?.acceptDelivery && booking.platformRef) await source.acceptDelivery(booking.platformRef);
-    const done = move(id, 'completed', booking.verification ? { resultHash: booking.verification.resultHash } : {});
-    await release(id);
-    return done;
+    move(id, 'completed', { ...(hash && { resultHash: hash }), ...(resultHash && { note: `delivery verified (${resultHash})` }) });
+    // A failed release is retried by tick (completed + funded), with the same result hash.
+    await release(id).catch((err) => console.error(`[bookings] release failed for ${id}:`, err));
+    return need(id);
   }
 
   /** A failed QA run (or a hirer's refusal): one revision request, then rejection and refund. */
@@ -372,7 +429,7 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
       store.insertBooking(booking);
       store.setKv(ctxKey(booking.id), JSON.stringify(ctx));
       bus.emit({ type: 'booking.updated', booking });
-      void begin(booking);
+      void begin(booking, job.brief);
       return booking;
     },
 
@@ -388,6 +445,27 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
       if (!approved) return need(id);
       if (!ACCEPTABLE.includes(need(id).status)) return need(id);
       return finishAccept(id);
+    },
+
+    async releaseOnVerified(id, resultHash, opts = {}) {
+      const booking = need(id);
+      if (!ACCEPTABLE.includes(booking.status)) throw new Error(`Cannot release a booking that is ${booking.status}`);
+      const esc = store.getEscrowByBooking(id);
+      if (esc?.status === 'funded' && esc.deadline && now() >= esc.deadline) throw new Error('the escrow deadline has passed; the budget can only be refunded');
+      if (!opts.preApproved) {
+        const to = booking.payeeWallet ? `the worker's wallet ${booking.payeeWallet}` : 'the operator';
+        const { approved } = await gate.request({
+          action: 'accept',
+          jobId: booking.jobId,
+          bookingId: id,
+          summary: `Delivery verified: accept and release $${booking.priceUsd} to ${to} (${booking.platform})`,
+          detail: `Result hash ${resultHash}`,
+        });
+        if (!approved) return need(id);
+      }
+      // Someone acted while the approval was open.
+      if (!ACCEPTABLE.includes(need(id).status)) return need(id);
+      return finishAccept(id, resultHash || undefined);
     },
 
     async requestRevision(id, text) {
@@ -424,7 +502,26 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
           let esc = store.getEscrowByBooking(booking.id);
           if (!esc) continue;
           if (booking.status === 'pending_escrow' && esc.status === 'awaiting_deposit') esc = saveEscrow(await provider.refresh(esc));
+          if (booking.status === 'pending_escrow' && esc.status === 'failed') {
+            // e.g. a deposit in the wrong mint or amount: return whatever arrived.
+            await refundAndEnd(booking.id, esc.error ?? 'escrow deposit rejected');
+            continue;
+          }
+          if (booking.status === 'pending_escrow' && esc.status === 'awaiting_deposit') {
+            if (now() >= esc.createdAt + config.ESCROW_DEPOSIT_TIMEOUT_MIN * MIN) expireDeposit(booking, esc);
+            continue;
+          }
           if (esc.status === 'funded') advanceInBackground(booking.id);
+        } catch (err) {
+          console.error(`[bookings] tick failed for ${booking.id}:`, err);
+        }
+      }
+      for (const booking of store.listBookings({ status: HOLDING })) {
+        if (busy.has(booking.id)) continue;
+        const esc = store.getEscrowByBooking(booking.id);
+        if (esc?.status !== 'funded' || !esc.deadline || now() < esc.deadline) continue;
+        try {
+          await expireDelivery(booking, esc);
         } catch (err) {
           console.error(`[bookings] tick failed for ${booking.id}:`, err);
         }
@@ -432,7 +529,9 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
       for (const booking of store.listBookings({ status: ['cancelled', 'rejected'] })) {
         if (busy.has(booking.id)) continue;
         try {
-          if (store.getEscrowByBooking(booking.id)?.status === 'funded') await refundAndEnd(booking.id, booking.note ?? 'cancelled');
+          const esc = store.getEscrowByBooking(booking.id);
+          // Funded, or a rejected deposit that still holds the hirer's money on chain.
+          if (esc?.status === 'funded' || (esc?.status === 'failed' && esc.payer)) await refundAndEnd(booking.id, booking.note ?? 'cancelled');
         } catch (err) {
           console.error(`[bookings] tick failed for ${booking.id}:`, err);
         }
@@ -448,6 +547,13 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
           qaInBackground(booking.id);
         } catch (err) {
           console.error(`[bookings] tick failed for ${booking.id}:`, err);
+        }
+      }
+      for (const booking of store.listBookings({ status: ['completed'] })) {
+        try {
+          if (store.getEscrowByBooking(booking.id)?.status === 'funded') await release(booking.id);
+        } catch (err) {
+          console.error(`[bookings] release retry failed for ${booking.id}:`, err);
         }
       }
       for (const booking of store.listBookings({ status: POLLED })) {

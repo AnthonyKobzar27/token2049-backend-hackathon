@@ -26,8 +26,8 @@ export function createMemoryEscrow(): EscrowProvider {
     async refresh(escrow) {
       return escrow;
     },
-    async release(escrow) {
-      return touch(escrow, { status: 'released' });
+    async release(escrow, opts = {}) {
+      return touch(escrow, { status: 'released', ...(opts.resultHash ? { resultHash: opts.resultHash } : {}) });
     },
     async refund(escrow) {
       return touch(escrow, { status: 'refunded' });

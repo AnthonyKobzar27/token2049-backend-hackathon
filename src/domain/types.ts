@@ -127,6 +127,8 @@ export interface FreelancerProfile {
   /** Platform level or badge, e.g. "Top Rated", "Level 2". */
   level?: string;
   verified?: boolean;
+  /** Solana wallet the freelancer accepts USDC at, when the platform publishes one. */
+  solanaWallet?: string;
   fetchedAt: Ms;
 }
 
@@ -338,6 +340,8 @@ export interface Booking {
   platformRef?: string;
   url?: string;
   escrowId?: string;
+  /** Wallet the escrow pays on release; unset means the operator (who pays the platform in fiat). */
+  payeeWallet?: string;
   /** Automatic replies to the freelancer are suspended. */
   paused: boolean;
   note?: string;
@@ -495,8 +499,24 @@ export interface EscrowRecord {
   settleTx?: string;
   explorerUrl?: string;
   error?: string;
+  /** On-chain deadline: after it the escrow can only be refunded, by anyone. */
+  deadline?: Ms;
+  /** Wallet paid on release. */
+  payee?: string;
+  /** Hex sha256 of the verified delivery, recorded on chain at release. */
+  resultHash?: string;
+  /** Every transaction touching this escrow, oldest first. */
+  txs?: EscrowTx[];
   createdAt: Ms;
   updatedAt: Ms;
+}
+
+export interface EscrowTx {
+  kind: 'deposit' | 'release' | 'refund' | 'cancel';
+  signature: string;
+  /** Block explorer link. */
+  url: string;
+  at: Ms;
 }
 
 // ----------------------------------------------------------------- events
@@ -509,6 +529,8 @@ export type HaasEvent =
   | { type: 'shortlist.ready'; job: Job; shortlist: Shortlist }
   | { type: 'booking.updated'; booking: Booking }
   | { type: 'escrow.updated'; escrow: EscrowRecord }
+  /** A deadline passed: the deposit never came (booking cancelled) or the delivery never got accepted (budget refunded). */
+  | { type: 'escrow.timeout'; kind: 'deposit_expired' | 'delivery_expired'; booking: Booking; escrow: EscrowRecord }
   | { type: 'approval.requested'; approval: Approval }
   | { type: 'approval.resolved'; approval: Approval }
   | { type: 'conversation.message'; message: ConversationMessage }
