@@ -49,7 +49,7 @@ Masumi agent (MIP-003) · Sokosumi Coworker · x402 (USDM on Cardano / USDC on S
  8  Release or refund ............. release bound to the result hash, worker paid;       │
                                      rejection or deadline -> automatic refund           │
  9  Reputation .................... CIP-68 update + receipt NFT (Cardano); Veridian      │
-10  Result to the caller .......... /status; same hash sent to Masumi submit-result ◄────┘
+10  Result to the caller .......... /status (names the release hash); Masumi submit ◄────┘
 ```
 
 1. **Scope.** The brief comes in through MIP-003 `start_job` (paid through the Masumi payment service, priced in USDM), the Sokosumi Coworker worker, the x402 endpoint (USDM on Cardano or USDC on Solana; `X402_NETWORK` picks) or Telegram. Day and time ("Saturday 2-5pm"), place and on-site need are read from the text.
@@ -61,7 +61,7 @@ Masumi agent (MIP-003) · Sokosumi Coworker · x402 (USDM on Cardano / USDC on S
 7. **Verify.** Every delivery goes through QA: the bounty's own result check, then rule checks and a Claude rubric. Pass: you approve the release (or it is automatic under `AUTO_RELEASE_MAX_USD`). Fail: one revision request; a second failure rejects the work.
 8. **Release or refund.** The release carries the QA result hash on chain and pays the payee; the bounty worker is paid once. A rejection, a cancellation or a passed escrow deadline refunds the hirer automatically, with no payout.
 9. **Reputation.** A completed, verified booking updates the worker's CIP-68 credential datum on Cardano and mints a receipt NFT linking the job, the result hash and the payment. For a broadcast bounty the worker who actually did it gets the credit.
-10. **Result.** `/status` returns the result: for a bounty, the structured work (e.g. "Booked: Thursday 3pm, ref 88213") plus `verifiedResult { hash, payload }`. For a paid Masumi job the watcher submits that same hash with `submit-result`, so Masumi, the Solana release and the reputation receipt all reference one result.
+10. **Result.** `/status` returns the result: for a bounty, the structured work (e.g. "Booked: Thursday 3pm, ref 88213") plus `verifiedResult { hash, payload }`. `verifiedResult.hash` is the hash the Solana release recorded and the reputation receipt carries. For a paid Masumi job the watcher submits the MIP-004 hash of exactly that `/status` result, so the buyer can check it and it commits to the release hash too.
 
 Settlement is chain-pluggable: the job fee on Cardano (Masumi, or x402 in USDM) or Solana (x402 in USDC); the booking budget on Solana.
 

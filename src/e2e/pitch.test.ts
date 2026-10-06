@@ -120,7 +120,7 @@ describe('pitch flow, end to end over MIP-003', () => {
     const result = JSON.parse(done.result);
     expect(result).toMatchObject({ outcome: 'booked', path: 'human', summary: expect.stringMatching(/ref 88213$/), work: { data: { reference: '88213' } } });
 
-    // One hash: QA report, escrow release on Solana, the job result, Masumi submit-result and the reputation receipt.
+    // One hash for the verified delivery: QA report, escrow release on Solana, the job result and the reputation receipt.
     const b = s.store.getBooking(booking.id)!;
     expect(b).toMatchObject({ status: 'completed', verification: { verdict: 'pass' } });
     const hash = b.resultHash!;
@@ -131,8 +131,9 @@ describe('pitch flow, end to end over MIP-003', () => {
     expect(s.paid).toEqual(['w_nithya:3SGD']);
     expect(s.asked.map((a) => a.action)).toEqual(['book', 'accept']);
 
+    // Masumi gets the MIP-004 hash of exactly the /status result, which names the release hash.
     await createWatcher({ jobs: s.jobs, store: s.store, bus: s.bus, config: s.config }, createPaymentClient(s.config)).poll();
-    expect(ps.log.filter((l) => l.path === '/payment/submit-result').map((l) => l.body.submitResultHash)).toEqual([hash]);
+    expect(ps.log.filter((l) => l.path === '/payment/submit-result').map((l) => l.body.submitResultHash)).toEqual([resultHash(done.result, IFP)]);
 
     await until(() => expect(s.identity.minter.task(booking.id)?.status).toBe('done'));
     const rep = s.identity.registry.reputationOf('bounty:w_nithya');

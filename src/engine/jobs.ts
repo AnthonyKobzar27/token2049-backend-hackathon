@@ -8,8 +8,8 @@ import { resultPayload } from '../verify/hash';
 
 /**
  * The verified result the escrow release was bound to. `hash` is the MIP-004 hash of `payload`
- * (sha256 of "<identifierFromPurchaser>;<payload>"), so a buyer can check it, and the Masumi
- * watcher submits this same hash instead of hashing the whole /status result.
+ * (sha256 of "<identifierFromPurchaser>;<payload>"), so a buyer can check it. It sits inside the job
+ * result, so the hash Masumi gets (over the whole /status result) commits to it too.
  */
 export function verifiedResultOf(booking: Booking): NonNullable<JobResult['verifiedResult']> {
   const d = booking.delivery;

@@ -275,7 +275,7 @@ export interface JobResult {
   bookingId?: string;
   bookingRef?: string;
   bookingUrl?: string;
-  /** QA-verified delivery: the hash the escrow release and the Masumi submit-result both carry, and what it hashes. */
+  /** QA-verified delivery: the hash the escrow release carries on chain, and what it hashes (MIP-004 style). */
   verifiedResult?: { hash: string; payload: string };
   /** How the job was paid, when it was paid over x402. */
   settlement?: PaymentSettlement;

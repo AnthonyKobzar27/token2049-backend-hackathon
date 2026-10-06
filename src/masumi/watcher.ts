@@ -59,8 +59,9 @@ export function createWatcher(deps: ApiDeps, payments: PaymentClient | undefined
         patchPayment(fresh.id, { resultSubmittedAt: now(), onChainState: 'ResultDeadlineMissed' });
         return;
       }
-      // A QA-verified result is submitted under the hash its escrow release carries (MIP-004 over its payload).
-      const hash = fresh.result?.verifiedResult?.hash ?? resultHash(resultString(fresh), p.identifierFromPurchaser);
+      // MIP-004 over exactly the result /status shows, so the buyer can check it. A QA-verified result
+      // carries verifiedResult.hash, the hash its escrow release was bound to, so this hash commits to it.
+      const hash = resultHash(resultString(fresh), p.identifierFromPurchaser);
       const state = await payments.getPayment(p.blockchainIdentifier);
       if (!state.resultSubmitted) await payments.submitResult(p.blockchainIdentifier, hash);
       patchPayment(fresh.id, { resultSubmittedAt: now(), resultHash: hash });
