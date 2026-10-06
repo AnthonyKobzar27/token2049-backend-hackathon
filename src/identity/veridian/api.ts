@@ -31,7 +31,9 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 export function mountVeridian(app: Express, veridian: VeridianService | null, opts: VeridianApiOptions): void {
   app.get('/oobi/:said', (req, res) => {
     if (req.params.said !== HAAS_WORKER_SCHEMA_SAID) return void res.status(404).json({ error: 'unknown schema' });
-    res.type('application/schema+json').send(JSON.stringify(HAAS_WORKER_SCHEMA));
+    // keripy's OOBI resolver matches the media type exactly: no "; charset=utf-8" suffix.
+    res.setHeader('Content-Type', 'application/schema+json');
+    res.end(JSON.stringify(HAAS_WORKER_SCHEMA));
   });
 
   const r = Router();

@@ -152,7 +152,7 @@ describe('HTTP API', () => {
   it('serves the schema as a data OOBI', async () => {
     const { base } = await serve();
     const res = await fetch(`${base}/oobi/${HAAS_WORKER_SCHEMA_SAID}`);
-    expect(res.headers.get('content-type')).toMatch(/application\/schema\+json/);
+    expect(res.headers.get('content-type')).toBe('application/schema+json');
     expect((await res.json()).$id).toBe(HAAS_WORKER_SCHEMA_SAID);
     expect((await fetch(`${base}/oobi/${fakeAid('other')}`)).status).toBe(404);
   });

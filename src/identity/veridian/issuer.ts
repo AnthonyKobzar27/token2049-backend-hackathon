@@ -132,6 +132,37 @@ const aidOfOobi = (oobi: string): string | undefined => {
 const isAid = (s: string) => /^[A-Za-z0-9_-]{44}$/.test(s);
 
 /**
+ * The Veridian wallet resolves a granted credential's schema from `exn.a.oobiUrl` + '/' + SAID when the
+ * grant carries it (else via the issuer's 'indexer' end role, which upstream KERIA 0.4 rejects for an
+ * AID's own prefix). signify-ts has no argument for it, so the payload is extended where the exn is built.
+ */
+function grantWithSchemaBase(client: SignifyPort, oobiBaseUrl: string | undefined): ReturnType<SignifyPort['ipex']> {
+  const ipex = client.ipex() as ReturnType<SignifyPort['ipex']> & { client?: object };
+  if (!oobiBaseUrl || !ipex.client) return ipex;
+  const oobiUrl = `${oobiBaseUrl.replace(/\/+$/, '')}/oobi`;
+  const real = ipex.client as Record<PropertyKey, any>;
+  ipex.client = new Proxy(real, {
+    get(target, prop) {
+      if (prop !== 'exchanges') {
+        const v = Reflect.get(target, prop, target);
+        return typeof v === 'function' ? v.bind(target) : v;
+      }
+      return () => {
+        const ex = target.exchanges();
+        return new Proxy(ex, {
+          get(et, ep) {
+            if (ep === 'createExchangeMessage') return (hab: unknown, route: string, payload: Record<string, unknown>, ...rest: unknown[]) => et.createExchangeMessage(hab, route, route === '/ipex/grant' ? { ...payload, oobiUrl } : payload, ...rest);
+            const v = Reflect.get(et, ep, et);
+            return typeof v === 'function' ? v.bind(et) : v;
+          },
+        });
+      };
+    },
+  });
+  return ipex;
+}
+
+/**
  * `source` is a connected client, or a function that connects (HAAS boots without waiting on KERIA:
  * the first call that needs the agent connects, and a failed connection is retried on the next call).
  */
@@ -182,7 +213,7 @@ export function createVeridianCredentialIssuer(source: SignifyPort | (() => Prom
       await waitOp(client, await (await client.identifiers().addLocScheme(issuerName, { url, scheme: new URL(url).protocol.replace(':', '') })).op(), opTimeout);
       await waitOp(client, await (await client.identifiers().addEndRole(issuerName, 'indexer', issuerAid)).op(), opTimeout);
     } catch (err) {
-      console.warn(`[veridian] could not register the indexer end role at ${url}: ${(err as Error).message}`);
+      console.warn(`[veridian] indexer end role not registered at ${url} (${(err as Error).message}); grants carry oobiUrl instead`);
     }
   }
 
@@ -284,7 +315,7 @@ export function createVeridianCredentialIssuer(source: SignifyPort | (() => Prom
       await waitOp(client, issued.op, opTimeout);
 
       const datetime = new Date(now()).toISOString().replace('Z', '000+00:00');
-      const [grant, sigs, atc] = await client.ipex().grant({ senderName: issuerName, recipient: holderAid, datetime, acdc: issued.acdc, anc: issued.anc, iss: issued.iss, message: 'HAAS Verified Worker' });
+      const [grant, sigs, atc] = await grantWithSchemaBase(client, opts.oobiBaseUrl).grant({ senderName: issuerName, recipient: holderAid, datetime, acdc: issued.acdc, anc: issued.anc, iss: issued.iss, message: 'HAAS Verified Worker' });
       await waitOp(client, await client.ipex().submitGrant(issuerName, grant, sigs, atc, [holderAid]), opTimeout);
 
       const said = String(issued.acdc.sad.d);

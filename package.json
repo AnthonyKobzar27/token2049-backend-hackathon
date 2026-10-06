@@ -14,7 +14,8 @@
     "smoke:browser": "tsx scripts/browser-smoke.ts",
     "register:agent": "tsx scripts/register-agent.ts",
     "veridian:schema": "tsx src/identity/veridian/schema.ts",
-    "veridian:demo": "tsx scripts/veridian-demo.ts"
+    "veridian:demo": "tsx scripts/veridian-demo.ts",
+    "veridian:wallet": "tsx scripts/veridian-wallet.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
