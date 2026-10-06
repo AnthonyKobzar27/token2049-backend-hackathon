@@ -240,6 +240,8 @@ export interface OnChainSignal {
   jobsCompleted: number;
   /** 0 to 5, when any job was rated. */
   avgRating?: number;
+  /** The credential behind `verified` includes a verified Veridian (KERI ACDC) credential (src/identity/veridian). */
+  veridian?: boolean;
 }
 
 const ONCHAIN_MAX_BOOST = 10;
@@ -255,7 +257,8 @@ export function onchainBoost(sig: OnChainSignal | undefined): number {
 export function onchainReason(sig: OnChainSignal | undefined): string | null {
   if (!sig?.verified) return null;
   const n = sig.jobsCompleted;
-  return n > 0 ? `on-chain verified, ${n} job${n === 1 ? '' : 's'} completed on HAAS` : 'on-chain verified HAAS worker';
+  const who = sig.veridian ? 'Veridian KERI credential verified' : 'on-chain verified';
+  return n > 0 ? `${who}, ${n} job${n === 1 ? '' : 's'} completed on HAAS` : `${who} HAAS worker`;
 }
 
 // ------------------------------------------------------------ explanation

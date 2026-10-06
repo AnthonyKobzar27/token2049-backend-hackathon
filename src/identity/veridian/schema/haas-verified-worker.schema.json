@@ -1,0 +1,106 @@
+{
+  "$id": "ENVe4IRREn4azglijtsA6OW2o4fm3v3Cwyw1mvlcb4av",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HAAS Verified Worker",
+  "description": "Issued by HAAS (Human as a Service) to a human worker whose freelance platform accounts HAAS has verified. Agents that hire through HAAS check it before booking.",
+  "type": "object",
+  "credentialType": "HAASVerifiedWorkerCredential",
+  "version": "1.0.0",
+  "properties": {
+    "v": {
+      "description": "Credential version",
+      "type": "string"
+    },
+    "d": {
+      "description": "Credential SAID",
+      "type": "string"
+    },
+    "u": {
+      "description": "One time use nonce",
+      "type": "string"
+    },
+    "i": {
+      "description": "Issuer AID (HAAS)",
+      "type": "string"
+    },
+    "ri": {
+      "description": "Credential status registry",
+      "type": "string"
+    },
+    "s": {
+      "description": "Schema SAID",
+      "type": "string"
+    },
+    "a": {
+      "oneOf": [
+        {
+          "description": "Attributes block SAID",
+          "type": "string"
+        },
+        {
+          "$id": "ECIcFrP5L508v5SvBVxdOnZ87nJLJ97k1iuSdemHqhBE",
+          "description": "Attributes block",
+          "type": "object",
+          "properties": {
+            "d": {
+              "description": "Attributes block SAID",
+              "type": "string"
+            },
+            "i": {
+              "description": "Worker (issuee) AID",
+              "type": "string"
+            },
+            "dt": {
+              "description": "Issuance date time",
+              "type": "string",
+              "format": "date-time"
+            },
+            "workerId": {
+              "description": "HAAS worker / profile id, e.g. freelancer:12345",
+              "type": "string"
+            },
+            "platformsVerified": {
+              "description": "Freelance platforms on which HAAS verified the worker controls the account",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "verificationMethod": {
+              "description": "How HAAS verified the worker, e.g. platform-oauth, profile-challenge, operator-review",
+              "type": "string"
+            },
+            "issuedAt": {
+              "description": "When HAAS completed the verification",
+              "type": "string",
+              "format": "date-time"
+            },
+            "cardanoReputationAsset": {
+              "description": "Optional CIP-68 reputation asset (policy id + asset name hex) on Cardano",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "d",
+            "i",
+            "dt",
+            "workerId",
+            "platformsVerified",
+            "verificationMethod",
+            "issuedAt"
+          ]
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "d",
+    "i",
+    "ri",
+    "s",
+    "a"
+  ]
+}

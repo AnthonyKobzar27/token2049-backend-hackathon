@@ -24,6 +24,8 @@ import { createRouter } from './router/router';
 import { createSuitabilityScorer } from './router/suitability';
 import { sokosumiWorkerFromConfig } from './sokosumi/setup';
 import { createBrowserSources } from './sources/browser';
+import { createVeridian, mountVeridian } from './identity/veridian';
+import { combineSignals } from './identity/veridian/service';
 import { createFakeSource } from './sources/fake';
 import { createFreelancerSource } from './sources/freelancer';
 import { createProlificSource } from './sources/prolific';
@@ -54,7 +56,11 @@ const registry = createRegistry({ sources, store, bus, config });
 const suitability = createSuitabilityScorer({ store, config });
 // Worker credential and on-chain reputation (Cardano); null without BLOCKFROST_PROJECT_ID + CARDANO_MINT_MNEMONIC.
 const identity = createIdentity({ store, bus, config });
-const router = createRouter({ registry, suitability, bus, config, ...(identity ? { identity: identity.registry } : {}) });
+// Veridian (KERI ACDC) verified-worker credentials; null without KERIA settings.
+const veridian = createVeridian({ config, store });
+// Both feed one cache-only signal per worker: router boost and the 'verified' label.
+const signals = identity || veridian ? combineSignals(identity?.registry, veridian) : undefined;
+const router = createRouter({ registry, suitability, bus, config, ...(signals ? { identity: signals } : {}) });
 
 const policy = createPolicy({ store, config });
 const gate = createApprovalGate({ store, bus, policy, config });
@@ -75,6 +81,7 @@ mountX402(app, { jobs, store, bus, config });
 // Solana Pay transaction requests for program escrow deposits (the hirer's wallet signs the deposit).
 if (escrow.buildDepositTransaction) mountSolanaPay(app, { store, escrow, config });
 mountIdentity(app, identity);
+mountVeridian(app, veridian, { publicUrl: config.PUBLIC_URL, ...(config.VERIDIAN_OOBI_BASE_URL ? { oobiBaseUrl: config.VERIDIAN_OOBI_BASE_URL } : {}), verifyTimeoutMs: config.VERIDIAN_VERIFY_TIMEOUT_MS, ...(config.VERIDIAN_ADMIN_TOKEN ? { adminToken: config.VERIDIAN_ADMIN_TOKEN } : {}) });
 
 const telegram = createTelegram({ jobs, bookings, gate, policy, store, bus, config });
 const liaison = createLiaison({ store, bus, registry, gate, config });
@@ -100,7 +107,13 @@ const server = app.listen(config.PORT, () => {
   if (config.DEMO_MODE) console.log(`[haas] demo mode: pinned cache, ${config.DEMO_BUDGET_MS} ms budget (warm it with pnpm demo:warm)`);
   console.log(`[haas] AI-first: ${config.AI_DELEGATION}; agent: ${config.AI_AGENT_URL ?? (config.MASUMI_REGISTRY_URL ? 'registry search' : 'none')}`);
   console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO || config.X402_SOLANA_PAY_TO ? 'on' : 'off'}; identity: ${identity ? config.CARDANO_NETWORK : 'off'}`);
+  // After listen: KERIA resolves the schema OOBI from this server.
+  veridian?.issuer
+    .init()
+    .then(({ issuerAid }) => console.log(`[haas] veridian issuer ${issuerAid}`))
+    .catch((err) => console.error('[veridian] issuer not ready (retried on first use):', (err as Error).message));
 });
+veridian?.startPolling();
 masumi.start();
 const sokosumi = sokosumiWorkerFromConfig({ config, store, jobs });
 sokosumi?.start();
@@ -114,6 +127,7 @@ async function shutdown() {
   stopping = true;
   poller.stop();
   bounty.stop();
+  veridian?.stop();
   masumi.stop();
   sokosumi?.stop();
   identity?.stop();

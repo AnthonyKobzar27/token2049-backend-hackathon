@@ -19,7 +19,10 @@
     "demo:bounty": "tsx scripts/demo-bounty.ts",
     "identity:wallet": "tsx scripts/mint-credential.ts --new-wallet",
     "identity:mint": "tsx scripts/mint-credential.ts",
-    "identity:demo": "tsx scripts/reputation-demo.ts"
+    "identity:demo": "tsx scripts/reputation-demo.ts",
+    "veridian:schema": "tsx src/identity/veridian/schema.ts",
+    "veridian:demo": "tsx scripts/veridian-demo.ts",
+    "veridian:wallet": "tsx scripts/veridian-wallet.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
@@ -38,6 +41,7 @@
     "grammy": "^1.46.0",
     "playwright-core": "^1.63.0",
     "qrcode": "^1.5.4",
+    "signify-ts": "0.4.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
