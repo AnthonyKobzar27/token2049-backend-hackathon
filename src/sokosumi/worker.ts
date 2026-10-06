@@ -44,6 +44,8 @@ export interface TaskRecord {
   inputHash?: string;
   payment?: JobPayment;
   paymentEventId?: string;
+  /** Set before the first masumiPayment post, so a retry checks whether the first one went through. */
+  paymentPostAttemptedAt?: Ms;
   result?: string;
   resultHash?: string;
   completedEventId?: string;
@@ -220,11 +222,24 @@ export function createSokosumiWorker(deps: WorkerDeps): Worker {
     }
 
     if (rec.stage === 'terms' && rec.payment) {
+      // A retry after a lost response: Core charges and creates the purchase claim in one transaction, so if the
+      // escrow is already moving the first post went through. Never post the same terms again then.
+      if (rec.paymentPostAttemptedAt && deps.payments) {
+        const state = await deps.payments.getPayment(rec.payment.blockchainIdentifier);
+        if (state.fundsLocked || state.resultSubmitted || state.withdrawn || (state.onChainState && state.onChainState !== 'None')) {
+          rec = save({ ...rec, stage: 'payment_posted' });
+        }
+      }
+    }
+
+    if (rec.stage === 'terms' && rec.payment) {
       if (now() > rec.payment.payByTime) return fail(rec, 'payment terms expired before Sokosumi accepted them');
+      const terms = rec.payment;
+      rec = save({ ...rec, paymentPostAttemptedAt: rec.paymentPostAttemptedAt ?? now() });
       try {
         const ev = await core.postEvent(id, {
-          masumiPayment: masumiPayment(rec.payment),
-          comment: `HAAS job fee: ${rec.payment.amounts?.map((a) => `${a.amount} ${a.unit || 'lovelace'}`).join(' + ')}. Escrow ${rec.payment.blockchainIdentifier.slice(0, 24)}...`,
+          masumiPayment: masumiPayment(terms),
+          comment: `HAAS job fee: ${terms.amounts?.map((a) => `${a.amount} ${a.unit || 'lovelace'}`).join(' + ')}. Escrow ${terms.blockchainIdentifier.slice(0, 24)}...`,
         });
         rec = save({ ...rec, paymentEventId: ev.id, stage: 'payment_posted' });
         log(`task ${id} masumiPayment event ${ev.id} posted`);

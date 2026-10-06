@@ -204,6 +204,27 @@ describe('Sokosumi worker', () => {
     expect(again.get('task_1')!.stage).toBe('completed');
   });
 
+  it('does not post the terms again when the first post went through but its answer was lost', async () => {
+    const s = setup();
+    const post = s.core.postEvent;
+    let lost = true;
+    s.core.postEvent = async (id, ev) => {
+      const r = await post(id, ev);
+      if (ev.masumiPayment && lost) {
+        lost = false;
+        throw new CoreError('Sokosumi unreachable: socket hang up');
+      }
+      return r;
+    };
+    await s.worker.tick();
+    expect(s.worker.get('task_1')!.stage).toBe('terms');
+    s.state.fundsLocked = true;
+    s.state.onChainState = 'FundsLocked';
+    await pass(s.worker);
+    expect(s.events.filter((e) => e.event.masumiPayment)).toHaveLength(1);
+    expect(s.worker.get('task_1')!.stage).toBe('completed');
+  });
+
   it('fails the Task when the escrow is not funded before payByTime', async () => {
     const s = setup();
     await s.worker.tick();

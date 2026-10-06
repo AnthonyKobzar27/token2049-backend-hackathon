@@ -78,6 +78,10 @@ pnpm start
 
 Secrets and the database live in `~/.haas/`, outside the repository.
 
+With `SOKOSUMI_COWORKER_ID` and `SOKOSUMI_COWORKER_API_KEY` set, `pnpm start` also runs the Sokosumi Coworker
+worker. It can run alone with `pnpm sokosumi:worker` (`--check` verifies the key and lists READY Tasks).
+The live Cardano runbook is `docs/LIVE_CARDANO_PAYMENT.md`; the payment service setup is `infra/masumi/README.md`.
+
 ## Layout
 
 | Path | What it holds |
@@ -86,6 +90,8 @@ Secrets and the database live in `~/.haas/`, outside the repository.
 | `src/sources/` | One adapter per platform, plus the registry and cache |
 | `src/engine/` | Job and booking lifecycles |
 | `src/masumi/` | MIP-003 API and Masumi payments |
+| `src/sokosumi/` | Sokosumi Coworker worker: runs HAAS on Tasks and settles each through Masumi |
+| `skills/haas/` | Skill that teaches coding agents to hire a human through HAAS |
 | `src/channels/`, `src/agent/` | Telegram bot, brief intake, liaison between hirer and freelancer |
 | `src/approvals/` | Approval gate and autonomy policy |
 | `src/payments/` | Solana escrow and the x402 paywall |
