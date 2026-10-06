@@ -127,13 +127,15 @@ export type Config = z.infer<typeof schema>;
 
 let cached: Config | undefined;
 
-/** Loads ~/.haas/.env (if present) and parses the environment. */
+/** Loads ~/.haas/.env and ./.env.local (if present; variables already set win) and parses the environment. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (env === process.env && cached) return cached;
   if (env === process.env) {
     mkdirSync(HAAS_HOME, { recursive: true });
     const file = join(HAAS_HOME, '.env');
     if (existsSync(file)) process.loadEnvFile(file);
+    // The Sokosumi guide's runtime-key snippet writes SOKOSUMI_COWORKER_API_KEY to ./.env.local (git-ignored).
+    if (existsSync('.env.local')) process.loadEnvFile('.env.local');
   }
   const config = schema.parse(env);
   if (env === process.env) cached = config;
