@@ -45,18 +45,29 @@ export const windowsFromConfig = (
   disputeDelayMin: c.MASUMI_DISPUTE_DELAY_MIN,
 });
 
-export const DEFAULT_WINDOWS: Windows = { payMin: 60, resultMin: 480, unlockDelayMin: 20, disputeDelayMin: 20 };
+/** Floors, one minute above the payment service's own minimums so clock skew between us and it cannot fail a request. */
+export const MIN_WINDOWS: Windows = { payMin: 5, resultMin: 16, unlockDelayMin: 16, disputeDelayMin: 16 };
+
+/**
+ * MIP-003 jobs: pay within 20 min, result 90 min after start (routing plus at least an hour for the human check-in,
+ * whose clock does not pause during awaiting_input), unlock 16 min later. Collection lands about 1 h 50 min after start.
+ */
+export const DEFAULT_WINDOWS: Windows = { payMin: 20, resultMin: 90, unlockDelayMin: 16, disputeDelayMin: 16 };
 
 /**
  * Deadlines for a new payment, clamped to what the payment service accepts (result >= now+15m, pay <= result-5m,
- * unlock >= result+15m, dispute >= unlock+15m). The result window has to cover routing, the human check-in (the
- * clock does not pause during awaiting_input) and the booking, so it defaults to 8 hours.
+ * unlock >= result+15m, dispute >= unlock+15m).
  */
 export function defaultTimes(now: Ms, w: Windows = DEFAULT_WINDOWS): PaymentTimes {
-  const submitResultTime = now + Math.max(w.resultMin, 20) * MIN;
-  const payByTime = Math.min(now + Math.max(w.payMin, 5) * MIN, submitResultTime - 5 * MIN);
-  const unlockTime = submitResultTime + Math.max(w.unlockDelayMin, 16) * MIN;
-  return { payByTime, submitResultTime, unlockTime, externalDisputeUnlockTime: unlockTime + Math.max(w.disputeDelayMin, 16) * MIN };
+  const submitResultTime = now + Math.max(w.resultMin, MIN_WINDOWS.resultMin) * MIN;
+  const payByTime = Math.min(now + Math.max(w.payMin, MIN_WINDOWS.payMin) * MIN, submitResultTime - 5 * MIN);
+  const unlockTime = submitResultTime + Math.max(w.unlockDelayMin, MIN_WINDOWS.unlockDelayMin) * MIN;
+  return {
+    payByTime,
+    submitResultTime,
+    unlockTime,
+    externalDisputeUnlockTime: unlockTime + Math.max(w.disputeDelayMin, MIN_WINDOWS.disputeDelayMin) * MIN,
+  };
 }
 
 export interface PaymentState {
@@ -80,6 +91,8 @@ export interface CreatePaymentInput {
   /** Required for Dynamic pricing, ignored for Fixed. */
   amounts?: Amount[];
   metadata?: string;
+  /** Overrides the configured deadlines for this payment (e.g. Sokosumi Tasks, which have no check-in). */
+  windows?: Partial<Windows>;
 }
 
 export interface PaymentClient {
@@ -210,8 +223,8 @@ export function createPaymentClient(config: Config, opts: { fetch?: Fetch; now?:
   };
 
   return {
-    async createPayment({ inputHash, identifierFromPurchaser, amounts, metadata }) {
-      const t = defaultTimes(now(), windowsFromConfig(config));
+    async createPayment({ inputHash, identifierFromPurchaser, amounts, metadata, windows }) {
+      const t = defaultTimes(now(), { ...windowsFromConfig(config), ...windows });
       const fallback: Hints =
         config.MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX !== undefined
           ? { paymentSourceType: 'Web3CardanoV2', supportedPaymentSourceIndex: config.MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX }

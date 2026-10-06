@@ -73,24 +73,31 @@ const schema = z.object({
   MASUMI_PRICE_MAX_AMOUNT: z.string().regex(/^[1-9]\d{0,18}$/).default('25000000'),
   /** Index of our Cardano source in the registry entry; unset means look it up. */
   MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX: z.preprocess((v) => (v === '' ? undefined : v), z.coerce.number().int().min(0).max(24).optional()),
-  /** Payment deadlines, in minutes. The result window covers search, the check-in and the booking: it does not pause while a human answers. */
-  MASUMI_PAY_WINDOW_MIN: int(60),
-  MASUMI_RESULT_WINDOW_MIN: int(480),
-  MASUMI_UNLOCK_DELAY_MIN: int(20),
-  MASUMI_DISPUTE_DELAY_MIN: int(20),
+  /**
+   * Payment deadlines for MIP-003 jobs, in minutes from start (unlock and dispute: after the previous deadline).
+   * The result window covers search and the human check-in; it does not pause while a human answers. Values below
+   * the payment service's minimums are raised to them (result 16, unlock 16, dispute 16, pay at most result - 5).
+   */
+  MASUMI_PAY_WINDOW_MIN: int(20),
+  MASUMI_RESULT_WINDOW_MIN: int(90),
+  MASUMI_UNLOCK_DELAY_MIN: int(16),
+  MASUMI_DISPUTE_DELAY_MIN: int(16),
 
-  /** Sokosumi Coworker worker (Tasks). Unset SOKOSUMI_COWORKER_ID disables it. */
+  /** Sokosumi Coworker worker (Tasks). It runs when both SOKOSUMI_COWORKER_ID and SOKOSUMI_COWORKER_API_KEY are set. */
   SOKOSUMI_COWORKER_ID: optional,
-  /** coworker_* runtime key. Unset: the sokosumi CLI's OS vault is used for runtime commands. */
+  /** The Coworker's coworker_* runtime key (Preprod). Not the Masumi payment service key. */
   SOKOSUMI_COWORKER_API_KEY: optional,
   SOKOSUMI_API_URL: z.string().default('https://api.preprod.sokosumi.com'),
-  /** Event or organization Workspace. Unset means the Personal Workspace. */
+  /** Only take Tasks of this organization; "personal" means the Personal Workspace only. Unset: every Task assigned to the Coworker. */
   SOKOSUMI_ORGANIZATION_ID: optional,
-  SOKOSUMI_ORGANIZATION_SLUG: optional,
-  SOKOSUMI_CLI: z.string().default('sokosumi'),
   SOKOSUMI_POLL_MS: int(10_000),
-  /** Charge each Task the Masumi job fee (needs MASUMI_* set and a confirmed Dynamic registration). */
+  /** Charge each Task the Masumi job fee through a masumiPayment event (needs MASUMI_* set and a confirmed Dynamic registration). */
   SOKOSUMI_PAID_TASKS: bool(false),
+  /** Payment deadlines for paid Tasks, in minutes (no human check-in, so shorter than the MIP-003 ones): unlock about 45 min after start. */
+  SOKOSUMI_PAY_WINDOW_MIN: int(15),
+  SOKOSUMI_RESULT_WINDOW_MIN: int(25),
+  SOKOSUMI_UNLOCK_DELAY_MIN: int(16),
+  SOKOSUMI_DISPUTE_DELAY_MIN: int(16),
 
   /** x402 paywall on Cardano. Unset X402_PAY_TO disables it. */
   X402_FACILITATOR_URL: z.string().default('http://localhost:4022'),
