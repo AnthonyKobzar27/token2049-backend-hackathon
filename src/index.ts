@@ -2,7 +2,8 @@ import express from 'express';
 import { createLiaison } from './agent/liaison';
 import { createApprovalGate } from './approvals/gate';
 import { createPolicy } from './approvals/policy';
-import { createTelegram } from './channels/telegram';
+import { createBountyModule } from './bounty';
+import { createTelegram, registerTelegramExtension } from './channels/telegram';
 import { loadConfig } from './config';
 import { createStore } from './db/db';
 import { createEventBus } from './domain/events';
@@ -32,6 +33,10 @@ const sources: FreelancerSource[] = [
 ];
 // Fixtures only on request, so they never mix into real results.
 if (config.SOURCES?.split(',').map((s) => s.trim()).includes('fake')) sources.push(createFakeSource());
+// First-party bounty board: enabled once verified workers are registered (scripts/seed-workers.ts).
+const bounty = createBountyModule({ store, bus, config });
+sources.push(bounty.source);
+registerTelegramExtension(bounty.telegram);
 
 const registry = createRegistry({ sources, store, bus, config });
 const suitability = createSuitabilityScorer({ store, config });
@@ -49,6 +54,7 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true, sources: registry.all().map((s) => ({ name: s.name, kind: s.kind, enabled: s.isEnabled() })) });
 });
 
+bounty.mount(app);
 const masumi = mountMasumi(app, { jobs, store, bus, config });
 mountX402(app, { jobs, store, bus, config });
 
@@ -58,6 +64,16 @@ const poller = createPoller({
   jobs: () => jobs.tick(),
   bookings: () => bookings.tick(),
   liaison: () => liaison.tick(),
+  bounties: () => bounty.tick(),
+});
+// Bounty state changes (claim, submit, expiry) reach the booking at once instead of on the next poll.
+let bountyKick: ReturnType<typeof setTimeout> | undefined;
+bus.on((e) => {
+  if (e.type !== 'bounty.updated' || bountyKick) return;
+  bountyKick = setTimeout(() => {
+    bountyKick = undefined;
+    bookings.tick().catch((err) => console.error('[bounty] booking refresh failed:', err));
+  }, 250);
 });
 
 const server = app.listen(config.PORT, () => {
@@ -74,6 +90,7 @@ async function shutdown() {
   if (stopping) return;
   stopping = true;
   poller.stop();
+  bounty.stop();
   masumi.stop();
   await telegram.stop().catch(() => {});
   server.close();
