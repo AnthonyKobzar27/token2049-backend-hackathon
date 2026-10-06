@@ -76,6 +76,19 @@ const schema = z.object({
   SOLANA_OPERATOR_SECRET: optional,
 
   REQUIRE_APPROVAL_FOR_ROUTINE_MESSAGES: bool(false),
+
+  /** Worker identity and reputation on Cardano (src/identity). Needs BLOCKFROST_PROJECT_ID and CARDANO_MINT_MNEMONIC. */
+  CARDANO_NETWORK: z.enum(['preprod', 'mainnet']).default('preprod'),
+  /** Mnemonic of the operator wallet that controls the HAAS credential policy and pays minting fees. */
+  CARDANO_MINT_MNEMONIC: optional,
+  /** Optional time lock on the minting policy: no mints at or after this absolute slot. */
+  IDENTITY_POLICY_LOCK_SLOT: optional.transform((v) => (v === undefined ? undefined : Number(v))).refine((v) => v === undefined || (Number.isInteger(v) && v > 0), 'must be a positive slot number'),
+  /** Minutes to wait for a QA verdict before recording a completed job without one. */
+  IDENTITY_VERIFY_GRACE_MIN: int(10),
+  /** Only record jobs whose result passed QA verification. */
+  IDENTITY_REQUIRE_VERIFICATION: bool(false),
+  /** Also mint a CIP-25 job receipt NFT to the worker for each recorded job. */
+  IDENTITY_RECEIPTS: bool(true),
 });
 
 export type Config = z.infer<typeof schema>;

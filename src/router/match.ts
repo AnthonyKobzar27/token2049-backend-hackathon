@@ -163,9 +163,37 @@ export function totalScore(s: Subscores): number {
   return Math.round(Math.min(100, Math.max(0, total)) * 10) / 10;
 }
 
+// ------------------------------------------------------- on-chain identity
+
+/** What the chain says about a worker (src/identity), read from cache so ranking never waits on it. */
+export interface OnChainSignal {
+  /** Holds a HAAS Verified Worker credential that is still in the bound wallet. */
+  verified: boolean;
+  /** Completed, paid jobs recorded on chain. */
+  jobsCompleted: number;
+  /** 0 to 5, when any job was rated. */
+  avgRating?: number;
+}
+
+const ONCHAIN_MAX_BOOST = 10;
+
+/** Points added to the 0-100 score: 3 for the credential, 0.5 per recorded job (up to 10 jobs), +-2 for rating. */
+export function onchainBoost(sig: OnChainSignal | undefined): number {
+  if (!sig?.verified) return 0;
+  let b = 3 + Math.min(sig.jobsCompleted, 10) * 0.5;
+  if (sig.avgRating !== undefined && sig.jobsCompleted > 0) b += Math.max(-2, Math.min(2, (sig.avgRating - 4) * 2));
+  return Math.max(0, Math.min(ONCHAIN_MAX_BOOST, b));
+}
+
+export function onchainReason(sig: OnChainSignal | undefined): string | null {
+  if (!sig?.verified) return null;
+  const n = sig.jobsCompleted;
+  return n > 0 ? `on-chain verified, ${n} job${n === 1 ? '' : 's'} completed on HAAS` : 'on-chain verified HAAS worker';
+}
+
 // ------------------------------------------------------------ explanation
 
-export function explain(brief: Brief, profile: FreelancerProfile, q: Quote, suit?: SuitabilityScore): { reason: string; unknowns: string[] } {
+export function explain(brief: Brief, profile: FreelancerProfile, q: Quote, suit?: SuitabilityScore, onchain?: OnChainSignal): { reason: string; unknowns: string[] } {
   const parts: string[] = [];
   const src = profile.platform;
   const unknowns: string[] = [];
@@ -184,6 +212,8 @@ export function explain(brief: Brief, profile: FreelancerProfile, q: Quote, suit
   const rh = profile.availability?.responseHours;
   if (rh !== undefined) parts.push(rh < 1 ? 'replies within the hour' : `replies in about ${Math.round(rh)} hour${Math.round(rh) === 1 ? '' : 's'}`);
   else if (profile.availability?.online) parts.push('online now');
+  const chainNote = onchainReason(onchain);
+  if (chainNote) parts.push(chainNote);
 
   if (profile.pricing.length === 0) unknowns.push(`price not published on ${src}`);
   else if (q.quoteUsd === undefined) unknowns.push('total cost unknown: hourly rate and no hours estimate');
@@ -204,6 +234,8 @@ export function explain(brief: Brief, profile: FreelancerProfile, q: Quote, suit
 export interface RankOptions {
   limit: number;
   exclude?: string[];
+  /** Cached on-chain identity by profile id; adds a bounded boost and a note to the reason. */
+  onchain?: Map<string, OnChainSignal>;
 }
 
 /** Hard-filters, scores, explains and orders profiles; at most ceil(limit*0.6) per platform while others remain. */
@@ -226,8 +258,13 @@ export function rank(brief: Brief, profiles: FreelancerProfile[], suitability: M
   const scored: Candidate[] = kept.map(({ profile, q }) => {
     const suit = suitability.get(profile.id);
     const sub = subscores(brief, profile, q, ctx, suit);
-    const { reason, unknowns } = explain(brief, profile, q, suit);
-    const c: Candidate = { profile, score: totalScore(sub), subscores: sub, reason, unknowns };
+    const sig = opts.onchain?.get(profile.id);
+    const { reason, unknowns } = explain(brief, profile, q, suit, sig);
+    const base = totalScore(sub);
+    // A credential never rescues a poor fit for the task.
+    const boost = sub.suitability !== null && sub.suitability < 0.25 ? 0 : onchainBoost(sig);
+    const score = boost > 0 ? Math.round(Math.min(100, base + boost) * 10) / 10 : base;
+    const c: Candidate = { profile, score, subscores: sub, reason, unknowns };
     if (q.quoteUsd !== undefined) c.quoteUsd = q.quoteUsd;
     if (q.pricingIndex !== undefined) c.pricingIndex = q.pricingIndex;
     return c;

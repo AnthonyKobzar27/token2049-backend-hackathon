@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
+    "@meshsdk/core": "^1.9.1",
     "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.99.0",
     "@x402/cardano": "~2.28.0",
@@ -31,6 +32,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@meshsdk/core-cst": "1.9.1",
     "@types/express": "^5.0.0",
     "@types/node": "^22",
     "@types/qrcode": "^1.5.5",
