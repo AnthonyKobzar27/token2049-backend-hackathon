@@ -1,0 +1,46 @@
+{
+  "name": "haas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "HAAS (Human as a Service): an open router for freelancers, as a Masumi agent",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "spike:masumi": "tsx scripts/masumi-spike.ts",
+    "spike:x402": "tsx scripts/x402-spike.ts",
+    "spike:solana": "tsx scripts/solana-spike.ts",
+    "smoke:browser": "tsx scripts/browser-smoke.ts",
+    "register:agent": "tsx scripts/register-agent.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.99.0",
+    "@x402/cardano": "~2.28.0",
+    "@x402/core": "~2.28.0",
+    "@x402/express": "~2.28.0",
+    "@x402/fetch": "~2.28.0",
+    "@x402/paywall": "~2.28.0",
+    "bs58": "^6.0.0",
+    "express": "^5.2.1",
+    "grammy": "^1.46.0",
+    "playwright-core": "^1.63.0",
+    "qrcode": "^1.5.4",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22",
+    "@types/qrcode": "^1.5.5",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
