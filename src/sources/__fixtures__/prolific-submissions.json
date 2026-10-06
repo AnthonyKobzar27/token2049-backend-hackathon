@@ -1,0 +1,9 @@
+{
+  "results": [
+    { "id": "sub_1", "participant_id": "5f0a00000000000000000001", "status": "AWAITING REVIEW", "started_at": "2026-10-05T10:00:00Z", "completed_at": "2026-10-05T10:09:00Z", "time_taken": 540, "study_code": "C0DE1234" },
+    { "id": "sub_2", "participant_id": "5f0a00000000000000000002", "status": "APPROVED", "started_at": "2026-10-05T10:01:00Z", "completed_at": "2026-10-05T10:12:00Z", "time_taken": 660, "study_code": "C0DE1234" },
+    { "id": "sub_3", "participant_id": "5f0a00000000000000000003", "status": "RETURNED", "started_at": "2026-10-05T10:02:00Z", "completed_at": null, "time_taken": null, "study_code": null },
+    { "id": "sub_4", "participant_id": "5f0a00000000000000000004", "status": "AWAITING REVIEW", "started_at": "2026-10-05T10:03:00Z", "completed_at": "2026-10-05T10:11:00Z", "time_taken": 480, "study_code": "C0DE1234" }
+  ],
+  "_links": { "self": { "href": "https://api.prolific.com/api/v1/submissions/?study=66f1c0ffee0000000000abcd&page=1" }, "next": { "href": null } }
+}

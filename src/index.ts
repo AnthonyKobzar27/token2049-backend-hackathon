@@ -18,6 +18,7 @@ import { createSuitabilityScorer } from './router/suitability';
 import { createBrowserSources } from './sources/browser';
 import { createFakeSource } from './sources/fake';
 import { createFreelancerSource } from './sources/freelancer';
+import { createProlificSource } from './sources/prolific';
 import { createRegistry } from './sources/registry';
 import { createRentAHumanSource } from './sources/rentahuman';
 import { createUpworkSource } from './sources/upwork';
@@ -30,6 +31,8 @@ const sources: FreelancerSource[] = [
   createFreelancerSource(config),
   createRentAHumanSource(config),
   createUpworkSource(config),
+  // Publishing a study spends money: it asks the approval gate, created further down.
+  createProlificSource({ config, store, gate: () => gate }),
   ...createBrowserSources({ config, bus }),
 ];
 // Fixtures only on request, so they never mix into real results.
