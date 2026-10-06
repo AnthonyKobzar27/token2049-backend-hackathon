@@ -65,6 +65,8 @@ const ACCEPTABLE: BookingStatus[] = ['delivered', 'verified', 'placed', 'handoff
 const HOLDING: BookingStatus[] = ['escrowed', 'awaiting_approval', 'placed', 'handoff', 'in_progress', 'delivered', 'verifying', 'verified', 'in_revision'];
 const BASE58_KEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const MIN = 60_000;
+/** An accept must leave this long before the escrow deadline for the release to land. */
+const RELEASE_MARGIN_MS = 2 * MIN;
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
 
@@ -88,6 +90,8 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
   const verifier = deps.verifier ?? createResultVerifier({ config });
   /** Bookings being advanced right now, so none is advanced twice concurrently. */
   const busy = new Set<string>();
+  /** Bookings with an accept (payout, release) or a refund in flight: never both, never twice. */
+  const settling = new Set<string>();
 
   function need(id: string): Booking {
     const b = store.getBooking(id);
@@ -109,12 +113,18 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
     return saved;
   }
 
-  /** Cancels, then returns the escrowed funds and ends in 'refunded'. Never throws. */
+  /**
+   * Cancels, then returns the escrowed funds and ends in 'refunded'. Never throws. Does nothing while
+   * an accept or another refund of the same booking is in flight (tick retries a cancelled one), or
+   * once the booking is settled.
+   */
   async function refundAndEnd(id: string, reason: string): Promise<Booking> {
     let booking = need(id);
-    // A QA rejection already says why; it goes straight to refunded.
-    if (booking.status !== 'cancelled' && booking.status !== 'rejected') booking = move(id, 'cancelled', { note: reason });
+    if (settling.has(id) || booking.status === 'completed' || booking.status === 'refunded') return booking;
+    settling.add(id);
     try {
+      // A QA rejection already says why; it goes straight to refunded.
+      if (booking.status !== 'cancelled' && booking.status !== 'rejected') booking = move(id, 'cancelled', { note: reason });
       const esc = store.getEscrowByBooking(id);
       if (esc && esc.status !== 'refunded' && esc.status !== 'released') saveEscrow(await provider.refund(esc));
       const after = store.getEscrowByBooking(id);
@@ -130,6 +140,8 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
       const b = store.updateBooking(id, { note: `${reason} (refund failed: ${errMsg(err)})` });
       bus.emit({ type: 'booking.updated', booking: b });
       return b;
+    } finally {
+      settling.delete(id);
     }
   }
 
@@ -221,6 +233,11 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
   async function release(id: string): Promise<void> {
     const esc = store.getEscrowByBooking(id);
     if (!esc || esc.status !== 'funded') return;
+    // Past the deadline the program only refunds (anyone may call it): re-read the chain instead of retrying.
+    if (esc.deadline && now() >= esc.deadline) {
+      saveEscrow(await provider.refresh(esc));
+      return;
+    }
     // The verified result hash goes on chain with the release (and is kept for a retry by tick).
     const hash = need(id).resultHash ?? store.getKv(resultKey(id)) ?? undefined;
     const bound = provider as EscrowProvider & Partial<VerifiedRelease>;
@@ -242,6 +259,7 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
   /** Funded but no accepted delivery by the on-chain deadline: return the budget to the hirer. */
   async function expireDelivery(booking: Booking, esc: EscrowRecord): Promise<void> {
     const ended = await refundAndEnd(booking.id, 'delivery was not accepted before the escrow deadline');
+    if (ended.status !== 'refunded' && ended.status !== 'cancelled') return;
     bus.emit({ type: 'escrow.timeout', kind: 'delivery_expired', booking: ended, escrow: store.getEscrowByBooking(booking.id) ?? esc });
   }
 
@@ -259,18 +277,27 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
 
   /** Acceptance on the platform, 'completed', then escrow release bound to the verified result hash. */
   async function finishAccept(id: string, resultHash?: string): Promise<Booking> {
-    const booking = need(id);
-    const esc = store.getEscrowByBooking(id);
-    // Past the on-chain deadline the program only refunds; tick does that.
-    if (esc?.status === 'funded' && esc.deadline && now() >= esc.deadline) throw new Error('the escrow deadline has passed; the budget can only be refunded');
-    const hash = resultHash ?? booking.verification?.resultHash;
-    if (hash) store.setKv(resultKey(id), hash);
-    const source = registry.get(booking.source);
-    if (source?.acceptDelivery && booking.platformRef) await source.acceptDelivery(booking.platformRef);
-    move(id, 'completed', { ...(hash && { resultHash: hash }), ...(resultHash && { note: `delivery verified (${resultHash})` }) });
-    // A failed release is retried by tick (completed + funded), with the same result hash.
-    await release(id).catch((err) => console.error(`[bookings] release failed for ${id}:`, err));
-    return need(id);
+    // One accept at a time, and never while a refund runs: the payout and the release happen once.
+    if (settling.has(id)) return need(id);
+    settling.add(id);
+    try {
+      const booking = need(id);
+      if (!ACCEPTABLE.includes(booking.status)) return booking;
+      const esc = store.getEscrowByBooking(id);
+      // Close to (or past) the on-chain deadline the program only refunds; tick does that. The margin
+      // covers paying the worker before the release lands.
+      if (esc?.status === 'funded' && esc.deadline && now() >= esc.deadline - RELEASE_MARGIN_MS) throw new Error('the escrow deadline has passed; the budget can only be refunded');
+      const hash = resultHash ?? booking.verification?.resultHash;
+      if (hash) store.setKv(resultKey(id), hash);
+      const source = registry.get(booking.source);
+      if (source?.acceptDelivery && booking.platformRef) await source.acceptDelivery(booking.platformRef);
+      move(id, 'completed', { ...(hash && { resultHash: hash }), ...(resultHash && { note: `delivery verified (${resultHash})` }) });
+      // A failed release is retried by tick (completed + funded), with the same result hash.
+      await release(id).catch((err) => console.error(`[bookings] release failed for ${id}:`, err));
+      return need(id);
+    } finally {
+      settling.delete(id);
+    }
   }
 
   /** A failed QA run (or a hirer's refusal): one revision request, then rejection and refund. */
@@ -379,6 +406,8 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
     const delivery = normaliseDelivery(d);
     // A re-read of the delivery QA already judged (e.g. the platform still shows it while in revision) is not new work.
     if (booking.verification?.deliveryHash === deliveryHash(delivery)) return false;
+    // QA is judging the previous delivery: this one is read again once QA has decided.
+    if (booking.status === 'verifying' || busy.has(booking.id)) return false;
     if (booking.status !== 'delivered' && !canBookingTransition(booking.status, 'delivered')) return false;
     store.setKv(deliveryKey(booking.id), JSON.stringify(delivery));
     const note = [delivery.text, ...(delivery.urls ?? [])].filter(Boolean).join('\n');

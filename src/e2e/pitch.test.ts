@@ -163,7 +163,8 @@ describe('pitch flow, end to end over MIP-003', () => {
     expect((await s.call(`/w/${token}/submit`, { date: thisThursday(), time: '16:00', reference: '22222' })).body).toMatchObject({ ok: true });
 
     const done = await statusOf(s, jobId, 'completed');
-    expect(JSON.parse(done.result)).toMatchObject({ outcome: 'no_booking', summary: expect.stringMatching(/refunded/) });
+    expect(JSON.parse(done.result)).toMatchObject({ outcome: 'no_booking', summary: expect.stringMatching(/^Booking ended \(rejected\): Rejected by QA: The clinic has no such booking\.$/) });
+    await until(() => expect(s.store.getBooking(s.store.getJob(jobId)!.bookingId!)?.status).toBe('refunded'));
     const booking = s.store.getBooking(s.store.getJob(jobId)!.bookingId!)!;
     expect(booking.status).toBe('refunded');
     expect(s.events.some((e) => e.type === 'verification.rejected')).toBe(true);

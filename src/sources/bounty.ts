@@ -154,7 +154,7 @@ export function createBountySource(deps: BountySourceDeps): FreelancerSource {
 export function watchBountyBookings(deps: { bus: EventBus; board: BountyBoard }): () => void {
   return deps.bus.on((e) => {
     if (e.type !== 'booking.updated' || e.booking.platform !== 'bounty') return;
-    if (e.booking.status !== 'cancelled' && e.booking.status !== 'refunded') return;
+    if (e.booking.status !== 'cancelled' && e.booking.status !== 'refunded' && e.booking.status !== 'rejected') return;
     for (const b of deps.board.list({ bookingId: e.booking.id, status: ['posted', 'claimed', 'submitted', 'verified'] })) {
       const reason = e.booking.note ?? 'booking cancelled';
       if (b.status === 'submitted') deps.board.reject(b.id, reason);

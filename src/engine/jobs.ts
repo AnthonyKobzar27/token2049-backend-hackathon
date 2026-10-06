@@ -143,8 +143,8 @@ export function createJobService(deps: JobDeps): JobService {
         bookingUrl: booking.url,
       });
     }
-    if (booking.status === 'cancelled' || booking.status === 'refunded') {
-      return complete(job, { outcome: 'no_booking', summary: `Booking ended (${booking.status})${booking.note ? `: ${booking.note}` : ''}.`, bookingId: booking.id });
+    if (booking.status === 'cancelled' || booking.status === 'refunded' || booking.status === 'rejected') {
+      return complete(job, { outcome: 'no_booking', summary: `Booking ended (${booking.status})${booking.note ? `: ${booking.note.replace(/\.+$/, '')}` : ''}.`, bookingId: booking.id });
     }
     return null;
   }

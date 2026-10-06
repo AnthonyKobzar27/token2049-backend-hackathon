@@ -500,3 +500,92 @@ describe('releaseOnVerified', () => {
     err.mockRestore();
   });
 });
+
+describe('settling races', () => {
+  const MIN = 60_000;
+  async function placed(o: Opts = {}) {
+    const h = setup(o);
+    const b = h.svc.create(job, cand(50));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+    return { h, id: b.id };
+  }
+  const gated = () => {
+    let open!: () => void;
+    const p = new Promise<void>((r) => (open = r));
+    return { p, open };
+  };
+
+  it('two concurrent accepts pay and release once', async () => {
+    const { h, id } = await placed();
+    const g = gated();
+    vi.mocked(h.source.acceptDelivery!).mockImplementation(() => g.p);
+    const a = h.svc.accept(id);
+    const b = h.svc.accept(id);
+    await vi.waitFor(() => expect(h.source.acceptDelivery).toHaveBeenCalled());
+    g.open();
+    await Promise.all([a, b]);
+    expect(h.source.acceptDelivery).toHaveBeenCalledTimes(1);
+    expect(h.escrow.release).toHaveBeenCalledTimes(1);
+    expect(h.status(id)).toBe('completed');
+  });
+
+  it('a cancel or a deadline expiry while the accept pays out does not refund it', async () => {
+    const { h, id } = await placed({ config: { ESCROW_DEADLINE_MIN: 60 } });
+    const g = gated();
+    vi.mocked(h.source.acceptDelivery!).mockImplementation(() => g.p);
+    const accepting = h.svc.accept(id);
+    await vi.waitFor(() => expect(h.source.acceptDelivery).toHaveBeenCalled());
+    await h.svc.cancel(id, 'changed my mind');
+    h.clock.t += 61 * MIN;
+    await h.svc.tick();
+    g.open();
+    await accepting;
+    expect(h.escrow.refund).not.toHaveBeenCalled();
+    expect(h.status(id)).toBe('completed');
+  });
+
+  it('refuses an accept inside the release margin, and never retries a release past the deadline', async () => {
+    const { h, id } = await placed({ config: { ESCROW_DEADLINE_MIN: 60 } });
+    h.clock.t += 59 * MIN;
+    await expect(h.svc.accept(id)).rejects.toThrow(/deadline/);
+    expect(h.source.acceptDelivery).not.toHaveBeenCalled();
+
+    // A completed booking whose release failed: past the deadline tick re-reads the chain instead.
+    const { h: h2, id: id2 } = await placed({ config: { ESCROW_DEADLINE_MIN: 60 } });
+    vi.mocked(h2.escrow.release).mockRejectedValueOnce(new Error('rpc down'));
+    await h2.svc.accept(id2);
+    expect(h2.store.getEscrowByBooking(id2)?.status).toBe('funded');
+    h2.clock.t += 61 * MIN;
+    await h2.svc.tick();
+    await h2.svc.tick();
+    expect(h2.escrow.release).toHaveBeenCalledTimes(1);
+    expect(h2.escrow.refresh).toHaveBeenCalled();
+  });
+
+  it('a cancel and tick together refund once', async () => {
+    const { h, id } = await placed();
+    const g = gated();
+    vi.mocked(h.escrow.refund).mockImplementation(async (e) => (await g.p, { ...e, status: 'refunded' as const }));
+    const cancelling = h.svc.cancel(id, 'bye');
+    await vi.waitFor(() => expect(h.escrow.refund).toHaveBeenCalled());
+    await h.svc.tick();
+    g.open();
+    await cancelling;
+    expect(h.escrow.refund).toHaveBeenCalledTimes(1);
+    expect(h.status(id)).toBe('refunded');
+    expect(h.store.getBooking(id)?.note).toBe('bye');
+  });
+
+  it('a delivery pushed while QA judges the previous one waits for the verdict', async () => {
+    let finish!: (r: Awaited<ReturnType<ResultVerifier['verify']>>) => void;
+    const verifier: ResultVerifier = { verify: vi.fn(() => new Promise<Awaited<ReturnType<ResultVerifier['verify']>>>((r) => (finish = r))) };
+    const { h, id } = await placed({ verifier });
+    await h.svc.deliver(id, { text: 'v1' });
+    await vi.waitFor(() => expect(h.status(id)).toBe('verifying'));
+    await h.svc.deliver(id, { text: 'v2' });
+    expect(h.status(id)).toBe('verifying');
+    expect(h.svc.delivery(id)).toEqual({ text: 'v1' });
+    finish({ verdict: 'fail', score: 0, checks: [], summary: 'no', resultHash: 'r', deliveryHash: 'd1', attempt: 1, ms: 1, at: 1 });
+    await vi.waitFor(() => expect(h.status(id)).toBe('in_revision'));
+  });
+});
