@@ -113,6 +113,16 @@ describe('bounty board', () => {
     expect(h.notifier.sent.some((s) => s.worker === 'w_ana' && s.notice.kind === 'revision')).toBe(true);
   });
 
+  it('pays a worker once when acceptance arrives twice at the same time', async () => {
+    const h = setupBoard();
+    const b = h.post();
+    h.board.claim(b.id, 'w_ana');
+    h.board.submit(b.id, 'w_ana', RESULT);
+    const [x, y] = await Promise.all([h.board.verifyAndPay(b.id), h.board.verifyAndPay(b.id)]);
+    expect(x.ok && y.ok).toBe(true);
+    expect(h.paid).toHaveLength(1);
+  });
+
   it('rejects and cancels', () => {
     const h = setupBoard();
     const a = h.post();

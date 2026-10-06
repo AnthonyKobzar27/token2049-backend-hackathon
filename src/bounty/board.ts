@@ -335,7 +335,18 @@ export function createBountyBoard(deps: BoardDeps) {
   }
 
   /** The submission passed verification: mark it, then pay the worker. */
+  const paying = new Map<string, Promise<Outcome>>();
+
   async function verifyAndPay(bountyId: string): Promise<Outcome> {
+    // One payout at a time per bounty: a second call while the first pays waits for it.
+    const running = paying.get(bountyId);
+    if (running) return running.then((r) => (r.ok ? { ok: true, bounty: get(bountyId)! } : r));
+    const p = payOnce(bountyId).finally(() => paying.delete(bountyId));
+    paying.set(bountyId, p);
+    return p;
+  }
+
+  async function payOnce(bountyId: string): Promise<Outcome> {
     let b = get(bountyId);
     if (!b) return { ok: false, error: 'No such bounty' };
     if (b.status === 'paid') return { ok: true, bounty: b };
