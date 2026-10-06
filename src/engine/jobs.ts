@@ -79,7 +79,23 @@ export function createJobService(deps: JobDeps): JobService {
   /** Completes a running job whose booking has reached a state that ends it. */
   function settle(job: Job, booking: Booking): Job | null {
     if (job.status !== 'running' || job.bookingId !== booking.id) return null;
-    if (booking.status === 'placed' || booking.status === 'handoff') {
+    // A bounty is the work itself: the job ends with its verified result, not when it is posted.
+    if (booking.platform === 'bounty' && booking.status === 'completed') {
+      const profile = candidateFor(job, booking.profileId)?.profile ?? store.getProfile(booking.profileId);
+      const d = booking.delivery;
+      const summary = d?.summary ?? d?.text ?? `Done by ${profile?.name ?? booking.profileId}.`;
+      return complete(job, {
+        outcome: 'booked',
+        summary,
+        work: { summary, data: d?.data ?? {}, ...(d?.urls?.length && { urls: d.urls }) },
+        freelancer: profile ? { id: profile.id, platform: profile.platform, name: profile.name, url: profile.url, headline: profile.headline } : undefined,
+        priceUsd: booking.priceUsd,
+        bookingId: booking.id,
+        bookingRef: booking.platformRef,
+        bookingUrl: booking.url,
+      });
+    }
+    if (booking.platform !== 'bounty' && (booking.status === 'placed' || booking.status === 'handoff')) {
       const profile = candidateFor(job, booking.profileId)?.profile ?? store.getProfile(booking.profileId);
       const booked = booking.status === 'placed';
       const name = profile?.name ?? booking.profileId;

@@ -12,6 +12,8 @@ export type Platform =
   | 'peopleperhour'
   | 'guru'
   | 'fake'
+  /** First-party microtask board: HAAS's own registered workers. */
+  | 'bounty'
   | (string & {});
 
 // ---------------------------------------------------------------- brief
@@ -167,6 +169,8 @@ export interface JobResult {
   bookingId?: string;
   bookingRef?: string;
   bookingUrl?: string;
+  /** The work's own result, for tasks a person carries out (bounties): structured fields plus a one-line summary. */
+  work?: { summary: string; data: Record<string, unknown>; urls?: string[] };
 }
 
 export interface Job {
@@ -223,8 +227,20 @@ export interface Booking {
   /** Automatic replies to the freelancer are suspended. */
   paused: boolean;
   note?: string;
+  /** What the freelancer delivered, as last reported by the platform. */
+  delivery?: BookingDelivery;
   createdAt: Ms;
   updatedAt: Ms;
+}
+
+export interface BookingDelivery {
+  text?: string;
+  /** One line a person can read, e.g. "Booked: Thursday 3pm, ref 88213". */
+  summary?: string;
+  /** Structured result, when the platform has one. */
+  data?: Record<string, unknown>;
+  urls?: string[];
+  at: Ms;
 }
 
 /** A booking request handed to a source once escrow and approval are in place. */
@@ -245,6 +261,10 @@ export interface PlatformBookingStatus {
   status: Extract<BookingStatus, 'placed' | 'in_progress' | 'delivered' | 'in_revision' | 'completed' | 'cancelled'>;
   deliveryText?: string;
   deliveryUrls?: string[];
+  /** Structured delivery, e.g. a bounty result validated against its schema. */
+  deliveryData?: Record<string, unknown>;
+  /** One-line summary of the delivery. */
+  deliverySummary?: string;
 }
 
 // --------------------------------------------------------- conversations
@@ -337,4 +357,21 @@ export type HaasEvent =
   | { type: 'approval.resolved'; approval: Approval }
   | { type: 'conversation.message'; message: ConversationMessage }
   /** A person must act outside the app, e.g. solve a challenge in the browser. */
-  | { type: 'operator.attention'; source: string; message: string; url?: string };
+  | { type: 'operator.attention'; source: string; message: string; url?: string }
+  /** A first-party bounty changed state. 'expired' carries the stage that timed out (escrow refunds on it). */
+  | { type: 'bounty.updated'; bounty: BountyEvent };
+
+export type BountyStatus = 'posted' | 'claimed' | 'submitted' | 'verified' | 'paid' | 'rejected' | 'expired' | 'cancelled';
+
+export interface BountyEvent {
+  bountyId: string;
+  bookingId?: string;
+  jobId?: string;
+  status: BountyStatus;
+  workerId?: string;
+  rewardUsd: number;
+  /** Set when status is 'expired'. */
+  stage?: 'claim' | 'submit';
+  reason?: string;
+  at: Ms;
+}
