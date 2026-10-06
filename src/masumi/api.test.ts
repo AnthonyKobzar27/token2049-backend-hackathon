@@ -134,7 +134,7 @@ describe('MIP-003 routes, unpaid mode', () => {
     const { req } = await boot();
     expect((await req('GET', '/availability')).body).toEqual({ status: 'available', type: 'masumi-agent', message: expect.any(String) });
     const schema = (await req('GET', '/input_schema')).body;
-    expect(schema.input_data.map((f: any) => f.id)).toEqual(['task', 'skills', 'budget_usd', 'deadline_days', 'location', 'remote_ok', 'hours_needed', 'language', 'timezone', 'notes']);
+    expect(schema.input_data.map((f: any) => f.id)).toEqual(['task', 'skills', 'budget_usd', 'deadline_days', 'location', 'remote_ok', 'hours_needed', 'language', 'timezone', 'notes', 'when', 'radius_km', 'task_type']);
   });
 
   it('start_job starts at once and returns a well-formed response', async () => {

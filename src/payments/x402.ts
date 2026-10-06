@@ -15,6 +15,7 @@ import { HTTPFacilitatorClient, type RoutesConfig } from '@x402/core/server';
 import { decodePaymentSignatureHeader } from '@x402/core/http';
 import { decodeCardanoTransaction } from '@x402/cardano';
 import { ExactCardanoScheme } from '@x402/cardano/exact/server';
+import { enrichBrief } from '../agent/extract';
 import type { ApiDeps, MountX402 } from '../domain/ports';
 import type { Brief, UserInput } from '../domain/types';
 
@@ -32,6 +33,9 @@ const briefSchema = z.object({
   hoursNeeded: z.number().positive().optional(),
   language: z.string().optional(),
   notes: z.string().optional(),
+  when: z.object({ date: z.string().optional(), window: z.object({ start: z.string(), end: z.string() }).optional(), timezone: z.string().optional() }).optional(),
+  radiusKm: z.number().positive().optional(),
+  taskType: z.enum(['in_person', 'remote_creative', 'remote_technical', 'remote_general']).optional(),
 });
 
 const inputSchema = z.discriminatedUnion('action', [
@@ -120,7 +124,7 @@ export const mountX402: MountX402 = (app: Express, deps: ApiDeps) => {
     if (req.method !== 'POST') return next();
     const parsed = briefSchema.safeParse(req.body);
     if (!parsed.success) return void res.status(400).json({ error: 'invalid brief', details: issues(parsed.error) });
-    res.locals.brief = parsed.data as Brief;
+    res.locals.brief = enrichBrief(parsed.data as Brief);
     next();
   };
   app.use('/x402/route', json, validate);

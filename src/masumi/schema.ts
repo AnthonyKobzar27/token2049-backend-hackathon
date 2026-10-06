@@ -1,6 +1,8 @@
 // MIP-003 input schemas (start_job brief, awaiting_input check-in) and parsers back into domain types.
 import { z } from 'zod';
+import { asTaskType, cleanWhen, enrichBrief } from '../agent/extract';
 import type { Brief, Shortlist, UserInput } from '../domain/types';
+import { parseWhen } from '../router/when';
 
 export interface InputField {
   id: string;
@@ -28,6 +30,9 @@ export const BRIEF_SCHEMA: InputSchema = {
     opt({ id: 'language', type: 'string', name: 'Language', data: { description: 'ISO 639-1 code the freelancer must work in, e.g. "en"' } }),
     opt({ id: 'timezone', type: 'string', name: 'Timezone', data: { description: 'Your IANA timezone, e.g. "Europe/Zurich"' } }),
     opt({ id: 'notes', type: 'string', name: 'Notes', data: { description: 'Anything else the freelancer should know' } }),
+    opt({ id: 'when', type: 'string', name: 'When', data: { description: 'Day and time the work should happen, e.g. "Saturday 2-5pm" or "2026-10-12 10:00-12:00"' } }),
+    opt({ id: 'radius_km', type: 'number', name: 'Radius (km)', data: { description: 'On-site work: how far from the location the person may be' } }),
+    opt({ id: 'task_type', type: 'option', name: 'Task type', data: { description: 'Overrides the inferred scoring weights', values: ['in_person', 'remote_creative', 'remote_technical', 'remote_general'] } }),
   ],
 };
 
@@ -71,6 +76,9 @@ const briefFields = z.object({
   language: text,
   timezone: text,
   notes: text,
+  when: text,
+  radius_km: positive,
+  task_type: z.preprocess((v) => (Array.isArray(v) ? v[0] : blank(v)), z.string().trim().optional()),
 });
 
 const camel: Record<string, string> = {
@@ -78,6 +86,8 @@ const camel: Record<string, string> = {
   deadlineDays: 'deadline_days',
   remoteOk: 'remote_ok',
   hoursNeeded: 'hours_needed',
+  radiusKm: 'radius_km',
+  taskType: 'task_type',
 };
 
 const issues = (e: z.ZodError) => e.issues.map((i) => `${i.path.join('.') || 'input_data'}: ${i.message}`);
@@ -104,7 +114,16 @@ export function parseBrief(raw: unknown): Parsed<Brief> {
   if (d.hours_needed !== undefined) brief.hoursNeeded = d.hours_needed;
   if (d.language) brief.language = d.language;
   if (d.notes) brief.notes = d.notes;
-  return { ok: true, value: brief };
+  if (d.radius_km !== undefined) brief.radiusKm = d.radius_km;
+  const taskType = asTaskType(d.task_type);
+  if (taskType) brief.taskType = taskType;
+  if (d.when) {
+    const iso = /^(\d{4}-\d{2}-\d{2})?\s*(?:(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2}))?$/.exec(d.when.trim());
+    const when = iso ? cleanWhen({ date: iso[1], start: iso[2], end: iso[3], timezone: brief.timezone }) : undefined;
+    const parsed = when ?? parseWhen(d.when, Date.now(), brief.timezone ?? 'UTC');
+    if (parsed) brief.when = parsed;
+  }
+  return { ok: true, value: enrichBrief(brief) };
 }
 
 // -------------------------------------------------------------- check-in
