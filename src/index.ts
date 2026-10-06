@@ -16,6 +16,7 @@ import { mountX402 } from './payments/x402';
 import { createRouter } from './router/router';
 import { createSuitabilityScorer } from './router/suitability';
 import { createBrowserSources } from './sources/browser';
+import { createVeridian, mountVeridian } from './identity/veridian';
 import { createFakeSource } from './sources/fake';
 import { createFreelancerSource } from './sources/freelancer';
 import { createRegistry } from './sources/registry';
@@ -35,7 +36,8 @@ if (config.SOURCES?.split(',').map((s) => s.trim()).includes('fake')) sources.pu
 
 const registry = createRegistry({ sources, store, bus, config });
 const suitability = createSuitabilityScorer({ store, config });
-const router = createRouter({ registry, suitability, bus, config });
+const veridian = createVeridian({ config, store });
+const router = createRouter({ registry, suitability, bus, config, ...(veridian ? { identity: veridian } : {}) });
 
 const policy = createPolicy({ store, config });
 const gate = createApprovalGate({ store, bus, policy, config });
@@ -51,6 +53,7 @@ app.get('/health', (_req, res) => {
 
 const masumi = mountMasumi(app, { jobs, store, bus, config });
 mountX402(app, { jobs, store, bus, config });
+mountVeridian(app, veridian, { publicUrl: config.PUBLIC_URL, verifyTimeoutMs: config.VERIDIAN_VERIFY_TIMEOUT_MS, ...(config.VERIDIAN_ADMIN_TOKEN ? { adminToken: config.VERIDIAN_ADMIN_TOKEN } : {}) });
 
 const telegram = createTelegram({ jobs, bookings, gate, policy, store, bus, config });
 const liaison = createLiaison({ store, bus, registry, gate, config });
@@ -64,7 +67,13 @@ const server = app.listen(config.PORT, () => {
   console.log(`[haas] listening on ${config.PUBLIC_URL} (port ${config.PORT})`);
   console.log(`[haas] sources: ${registry.enabled().map((s) => s.name).join(', ') || 'none enabled'}`);
   console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO ? 'on' : 'off'}`);
+  // After listen: KERIA resolves the schema OOBI from this server.
+  veridian?.issuer
+    .init()
+    .then(({ issuerAid }) => console.log(`[haas] veridian issuer ${issuerAid}`))
+    .catch((err) => console.error('[veridian] issuer not ready (retried on first use):', (err as Error).message));
 });
+veridian?.startPolling();
 masumi.start();
 poller.start();
 telegram.start().catch((err) => console.error('[telegram] failed to start:', err));
@@ -74,6 +83,7 @@ async function shutdown() {
   if (stopping) return;
   stopping = true;
   poller.stop();
+  veridian?.stop();
   masumi.stop();
   await telegram.stop().catch(() => {});
   server.close();

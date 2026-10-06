@@ -131,7 +131,13 @@ const aidOfOobi = (oobi: string): string | undefined => {
 
 const isAid = (s: string) => /^[A-Za-z0-9_-]{44}$/.test(s);
 
-export function createVeridianCredentialIssuer(client: SignifyPort, opts: VeridianIssuerOptions = {}): VeridianCredentialIssuer {
+/**
+ * `source` is a connected client, or a function that connects (HAAS boots without waiting on KERIA:
+ * the first call that needs the agent connects, and a failed connection is retried on the next call).
+ */
+export function createVeridianCredentialIssuer(source: SignifyPort | (() => Promise<SignifyPort>), opts: VeridianIssuerOptions = {}): VeridianCredentialIssuer {
+  const connect = typeof source === 'function' ? source : async () => source;
+  let client!: SignifyPort;
   const issuerName = opts.issuerName ?? 'haas-issuer';
   const registryName = opts.registryName ?? 'haas-verified-workers';
   const schemaSaid = opts.schemaSaid ?? HAAS_WORKER_SCHEMA_SAID;
@@ -182,6 +188,7 @@ export function createVeridianCredentialIssuer(client: SignifyPort, opts: Veridi
 
   const init = () => {
     initialized ??= (async () => {
+      client = await connect();
       const issuerAid = await ensureAid();
       const registryId = await ensureRegistry();
       if (opts.oobiBaseUrl) await ensureIndexer(issuerAid, opts.oobiBaseUrl);
@@ -254,6 +261,7 @@ export function createVeridianCredentialIssuer(client: SignifyPort, opts: Veridi
 
     async resolveHolder(oobi, alias) {
       if (isAid(oobi)) return oobi;
+      await init();
       const op = await client.oobis().resolve(oobi, alias);
       const done = await waitOp<{ i?: string }>(client, op, opTimeout);
       const aid = done.response?.i ?? aidOfOobi(oobi);
@@ -308,6 +316,7 @@ export function createVeridianCredentialIssuer(client: SignifyPort, opts: Veridi
     },
 
     async status(cred: WorkerCredential): Promise<CredentialStatus> {
+      await init();
       const said = (cred as Partial<VeridianCredential>).said ?? cred.assetName;
       const ri = (cred as Partial<VeridianCredential>).registryId ?? cred.refUnit;
       const et = await registryState(ri, said);
@@ -315,6 +324,7 @@ export function createVeridianCredentialIssuer(client: SignifyPort, opts: Veridi
     },
 
     async admitted(grantSaid) {
+      await init();
       const { notes } = await client.notifications().list(0, 99);
       for (const note of notes) {
         if (note.a.r !== '/exn/ipex/admit' || !note.a.d) continue;

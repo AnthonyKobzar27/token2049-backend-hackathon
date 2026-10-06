@@ -89,6 +89,23 @@ const schema = z.object({
   IDENTITY_REQUIRE_VERIFICATION: bool(false),
   /** Also mint a CIP-25 job receipt NFT to the worker for each recorded job. */
   IDENTITY_RECEIPTS: bool(true),
+
+  /** Veridian (KERI/ACDC) worker credentials (src/identity/veridian, docs/VERIDIAN.md). Unset VERIDIAN_KERIA_URL disables it. */
+  VERIDIAN_KERIA_URL: optional,
+  VERIDIAN_KERIA_BOOT_URL: optional,
+  /** 21+ character passcode (bran) of the HAAS issuer's KERIA agent. Keep it secret: it derives the issuer keys. */
+  VERIDIAN_PASSCODE: optional,
+  VERIDIAN_ISSUER_NAME: z.string().default('haas-issuer'),
+  VERIDIAN_REGISTRY_NAME: z.string().default('haas-verified-workers'),
+  /** Public base URL that serves /oobi/{schemaSaid}; defaults to PUBLIC_URL. Must be reachable by KERIA and the wallet. */
+  VERIDIAN_OOBI_BASE_URL: optional,
+  /** Semicolon-separated witness OOBIs and AIDs for the issuer AID. Unset: no witnesses (local demo). */
+  VERIDIAN_WITNESS_OOBIS: optional,
+  VERIDIAN_WITNESS_AIDS: optional,
+  /** Bearer token for the operator onboarding endpoint; unset allows loopback requests only. */
+  VERIDIAN_ADMIN_TOKEN: optional,
+  VERIDIAN_VERIFY_TIMEOUT_MS: int(2_000),
+  VERIDIAN_CACHE_TTL_MIN: int(30),
 });
 
 export type Config = z.infer<typeof schema>;
