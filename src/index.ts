@@ -6,11 +6,14 @@ import { createTelegram } from './channels/telegram';
 import { loadConfig } from './config';
 import { createStore } from './db/db';
 import { createEventBus } from './domain/events';
+import { createClassifier } from './delegate/classify';
+import { createDelegator } from './delegate/delegate';
 import type { FreelancerSource } from './domain/ports';
 import { createBookingService } from './engine/bookings';
 import { createJobService } from './engine/jobs';
 import { createPoller } from './jobs/poller';
 import { mountMasumi } from './masumi/api';
+import { createBuyer } from './masumi/buyer';
 import { createEscrowProvider } from './payments';
 import { mountX402 } from './payments/x402';
 import { createRouter } from './router/router';
@@ -41,7 +44,8 @@ const policy = createPolicy({ store, config });
 const gate = createApprovalGate({ store, bus, policy, config });
 const escrow = createEscrowProvider({ store, config });
 const bookings = createBookingService({ store, bus, registry, escrow, gate, config });
-const jobs = createJobService({ store, bus, router, bookings, config });
+const delegate = createDelegator({ config, bus, classifier: createClassifier({ config }), buyer: createBuyer(config) });
+const jobs = createJobService({ store, bus, router, bookings, config, delegate });
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -63,6 +67,7 @@ const poller = createPoller({
 const server = app.listen(config.PORT, () => {
   console.log(`[haas] listening on ${config.PUBLIC_URL} (port ${config.PORT})`);
   console.log(`[haas] sources: ${registry.enabled().map((s) => s.name).join(', ') || 'none enabled'}`);
+  console.log(`[haas] AI-first: ${config.AI_DELEGATION}; agent: ${config.AI_AGENT_URL ?? (config.MASUMI_REGISTRY_URL ? 'registry search' : 'none')}`);
   console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO ? 'on' : 'off'}`);
 });
 masumi.start();
