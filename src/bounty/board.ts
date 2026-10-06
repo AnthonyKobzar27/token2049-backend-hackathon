@@ -74,7 +74,8 @@ const NEXT: Record<BountyStatus, BountyStatus[]> = {
   posted: ['claimed', 'expired', 'cancelled'],
   claimed: ['submitted', 'expired', 'cancelled'],
   submitted: ['verified', 'claimed', 'rejected', 'cancelled'],
-  verified: ['paid', 'cancelled'],
+  // 'claimed': the hirer or the booking's QA sent a checked submission back for a revision.
+  verified: ['paid', 'claimed', 'cancelled'],
   paid: [],
   rejected: [],
   expired: [],

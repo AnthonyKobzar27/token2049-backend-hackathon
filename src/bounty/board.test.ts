@@ -102,6 +102,17 @@ describe('bounty board', () => {
     expect((await h.board.verifyAndPay(b.id)).ok).toBe(true);
   });
 
+  it('sends a checked (verified) submission back when the booking QA or the hirer turns it down', () => {
+    const h = setupBoard();
+    const b = h.post();
+    h.board.claim(b.id, 'w_ana');
+    h.board.submit(b.id, 'w_ana', RESULT);
+    expect(h.board.verify(b.id, { ok: true, issues: [], by: 'rules', at: h.now() }).ok).toBe(true);
+    const r = h.board.requestRevision(b.id, 'The clinic has no booking 88213');
+    expect(r.ok && r.bounty).toMatchObject({ status: 'claimed', revisions: 1, feedback: 'The clinic has no booking 88213' });
+    expect(h.notifier.sent.some((s) => s.worker === 'w_ana' && s.notice.kind === 'revision')).toBe(true);
+  });
+
   it('rejects and cancels', () => {
     const h = setupBoard();
     const a = h.post();
