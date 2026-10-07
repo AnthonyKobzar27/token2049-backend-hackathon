@@ -3,7 +3,7 @@ import type { Delegator } from '../delegate/delegate';
 import { assertJobTransition } from '../domain/machine';
 import { newId, now } from '../domain/ids';
 import type { BookingService, EventBus, JobService, Router, Store } from '../domain/ports';
-import type { Booking, Brief, Candidate, Job, JobResult, JobStatus, UserInput } from '../domain/types';
+import type { Booking, Brief, Candidate, FreelancerProfile, Job, JobResult, JobStatus, UserInput } from '../domain/types';
 import { resultPayload } from '../verify/hash';
 
 /**
@@ -29,6 +29,7 @@ export interface JobDeps {
 const excludeKey = (jobId: string) => `job:${jobId}:exclude`;
 const feedbackKey = (jobId: string) => `job:${jobId}:feedback`;
 const aiTriedKey = (jobId: string) => `job:${jobId}:ai_tried`;
+const pinnedKey = (jobId: string) => `job:${jobId}:pinned`;
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
 /** A paid Masumi job stops taking a booking this long before its result deadline (the buyer refunds after it). */
 const RESULT_MARGIN_MS = 10 * 60_000;
@@ -64,9 +65,12 @@ export function createJobService(deps: JobDeps): JobService {
     try {
       const job = store.getJob(jobId);
       if (!job || job.status !== 'running') return;
+      const pinned = readPinned(jobId);
       // Marked before hiring: after a restart mid-hire the job goes to the human router instead of
       // hiring (and possibly paying) a second agent for the same work.
-      if (deps.delegate && !job.path && store.getKv(aiTriedKey(jobId))) store.updateJob(jobId, { path: 'human' });
+      // A hirer who named a person wants that person, not an agent.
+      if (pinned && !job.path) store.updateJob(jobId, { path: 'human' });
+      else if (deps.delegate && !job.path && store.getKv(aiTriedKey(jobId))) store.updateJob(jobId, { path: 'human' });
       else if (deps.delegate && !job.path) {
         store.setKv(aiTriedKey(jobId), String(now()));
         const ai = await deps.delegate.tryAi(job);
@@ -81,7 +85,7 @@ export function createJobService(deps: JobDeps): JobService {
       }
       const exclude = readList(excludeKey(jobId));
       const feedback = store.getKv(feedbackKey(jobId)) ?? undefined;
-      const { candidates, sources } = await router.route(job.brief, { jobId, limit: config.SHORTLIST_SIZE, exclude, feedback });
+      const { candidates, sources } = await router.route(job.brief, { jobId, limit: config.SHORTLIST_SIZE, exclude, feedback, ...(pinned && { only: [pinned] }) });
       const fresh = store.getJob(jobId);
       if (!fresh || fresh.status !== 'running') return;
       const shortlist = { id: newId('sl'), jobId, round: fresh.round, candidates, sources, createdAt: now() };
@@ -97,6 +101,15 @@ export function createJobService(deps: JobDeps): JobService {
       }
     } finally {
       routing.delete(jobId);
+    }
+  }
+
+  function readPinned(jobId: string): FreelancerProfile | undefined {
+    try {
+      const raw = store.getKv(pinnedKey(jobId));
+      return raw ? (JSON.parse(raw) as FreelancerProfile) : undefined;
+    } catch {
+      return undefined;
     }
   }
 
@@ -178,6 +191,7 @@ export function createJobService(deps: JobDeps): JobService {
         updatedAt: t,
       };
       store.insertJob(job);
+      if (input.pinned) store.setKv(pinnedKey(job.id), JSON.stringify(input.pinned));
       bus.emit({ type: 'job.updated', job });
       if (!input.awaitPayment) routeInBackground(job.id);
       return job;
@@ -222,6 +236,8 @@ export function createJobService(deps: JobDeps): JobService {
       const exclude = new Set([...readList(excludeKey(jobId)), ...(latest?.candidates.map((c) => c.profile.id) ?? [])]);
       store.setKv(excludeKey(jobId), JSON.stringify([...exclude]));
       store.setKv(feedbackKey(jobId), input.feedback);
+      // "Different options" means beyond the person they named: search as usual from here.
+      store.setKv(pinnedKey(jobId), '');
       const patch = Object.fromEntries(Object.entries(input.brief ?? {}).filter(([, v]) => v !== undefined)) as Partial<Brief>;
       const running = move(jobId, 'running', { brief: { ...job.brief, ...patch }, round: job.round + 1 });
       routeInBackground(jobId);

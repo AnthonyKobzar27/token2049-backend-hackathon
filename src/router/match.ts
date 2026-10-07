@@ -325,6 +325,8 @@ export interface RankOptions {
   now?: Ms;
   /** Cached on-chain identity by profile id; adds a bounded boost and a note to the reason. */
   onchain?: Map<string, OnChainSignal>;
+  /** The hirer named these people: score and explain them, but never drop one (the reason says what does not fit). */
+  keepAll?: boolean;
 }
 
 /** Hard-filters, scores, explains and orders profiles; at most ceil(limit*0.6) per platform while others remain. */
@@ -332,12 +334,13 @@ export function rank(brief: Brief, profiles: FreelancerProfile[], suitability: M
   const now = opts.now ?? Date.now();
   const excluded = new Set(opts.exclude ?? []);
   const seen = new Set<string>();
-  const kept: { profile: FreelancerProfile; q: Quote }[] = [];
+  const kept: { profile: FreelancerProfile; q: Quote; drop: string | null }[] = [];
   for (const profile of profiles) {
     if (excluded.has(profile.id) || seen.has(profile.id)) continue;
     seen.add(profile.id);
     const q = quote(brief, profile);
-    if (dropReason(brief, profile, q) === null) kept.push({ profile, q });
+    const drop = dropReason(brief, profile, q);
+    if (drop === null || opts.keepAll) kept.push({ profile, q, drop });
   }
 
   const ctx: SetContext = {
@@ -345,11 +348,13 @@ export function rank(brief: Brief, profiles: FreelancerProfile[], suitability: M
     medianDelivery: median(kept.flatMap((k) => { const d = chosenPricing(k.profile, k.q)?.deliveryDays; return d !== undefined ? [d] : []; })),
   };
 
-  const scored: Candidate[] = kept.map(({ profile, q }) => {
+  const scored: Candidate[] = kept.map(({ profile, q, drop }) => {
     const suit = suitability.get(profile.id);
     const sub = subscores(brief, profile, q, ctx, suit, now);
     const sig = opts.onchain?.get(profile.id);
-    const { reason, unknowns } = explain(brief, profile, q, suit, now, sig);
+    const explained = explain(brief, profile, q, suit, now, sig);
+    const reason = drop ? `${explained.reason} Heads up: ${drop}.` : explained.reason;
+    const { unknowns } = explained;
     const base = totalScore(sub, opts.weights);
     // A credential never rescues a poor fit for the task.
     const boost = sub.suitability !== null && sub.suitability < 0.25 ? 0 : onchainBoost(sig);

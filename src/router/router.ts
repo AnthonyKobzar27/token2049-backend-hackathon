@@ -29,6 +29,12 @@ export function createRouter(deps: { registry: SourceRegistry; suitability: Suit
     async route(brief, opts) {
       const started = Date.now();
       const total = routeBudgetMs(config);
+      if (opts.only) {
+        // The hirer named the person: no search, but the same scoring, quote and reasons as any shortlist.
+        const scores = await suitability.score(brief, opts.only, { budgetMs: total });
+        const { weights } = weightsFor(brief, config.ROUTER_WEIGHTS);
+        return { candidates: rank(brief, opts.only, scores, { limit: opts.only.length, weights, keepAll: true }), sources: [] };
+      }
       const progress = (message: string): void => {
         if (opts.jobId) bus.emit({ type: 'job.progress', jobId: opts.jobId, message });
       };

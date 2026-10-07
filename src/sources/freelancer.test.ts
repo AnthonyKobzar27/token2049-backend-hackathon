@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { testConfig } from '../config';
 import { createFreelancerSource, normaliseUser, type RawUser } from './freelancer';
 
@@ -60,6 +60,19 @@ describe('freelancer normaliser', () => {
 });
 
 describe('freelancer source', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('looks a pasted profile up by username, since the link has no numeric id', async () => {
+    const user = load('freelancer-user.json').result as RawUser;
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ status: 'success', result: { users: { [String(user.id)]: user } } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const p = await createFreelancerSource(testConfig()).getProfile!('annlee');
+    expect(p?.platformId).toBe('44921792');
+    const url = new URL(String((fetch.mock.calls[0] as unknown[])[0]));
+    expect(url.pathname).toBe('/api/users/0.1/users/');
+    expect(url.searchParams.get('usernames[]')).toBe('annlee');
+  });
+
   it('is enabled without a token and handoffs without a sandbox token', async () => {
     const src = createFreelancerSource(testConfig());
     expect(src.isEnabled()).toBe(true);

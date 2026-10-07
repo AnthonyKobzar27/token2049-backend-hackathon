@@ -201,7 +201,18 @@ export function createFreelancerSource(config: Config): FreelancerSource {
     return (res.result?.users ?? []).filter((u) => !u.closed).slice(0, opts.limit).map((u) => normaliseUser(u, now));
   }
 
+  async function getProfileByUsername(username: string): Promise<FreelancerProfile | null> {
+    const res = await requestJson<Envelope<{ users?: Record<string, RawUser> | RawUser[] }>>(`${PROD}/users/0.1/users/`, {
+      query: { ...DETAILS, 'usernames[]': username },
+      headers: prodHeaders(),
+    });
+    const user = Object.values(res.result?.users ?? {})[0];
+    return user ? normaliseUser(user) : null;
+  }
+
   async function getProfile(platformId: string): Promise<FreelancerProfile | null> {
+    // A pasted profile link (freelancer.com/u/<username>) carries the username, not the numeric id bookings need.
+    if (!/^\d+$/.test(platformId)) return getProfileByUsername(platformId);
     try {
       const res = await requestJson<Envelope<RawUser>>(`${PROD}/users/0.1/users/${encodeURIComponent(platformId)}/`, {
         query: DETAILS,

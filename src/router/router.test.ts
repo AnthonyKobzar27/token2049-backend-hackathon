@@ -32,6 +32,16 @@ function setup(llmNotes?: string[]) {
 const brief: Brief = { task: 'on-site errands help', skills: ['errands'], location: 'Singapore', remoteOk: false, budgetUsd: 200, hoursNeeded: 4 };
 
 describe('router', () => {
+  it('ranks only the person the hirer named, without searching, even when a filter would drop them', async () => {
+    const { router, events } = setup();
+    const named: FreelancerProfile = { id: 'fiverr:tasya/tutor', platform: 'fiverr', platformId: 'tasya/tutor', url: 'https://www.fiverr.com/tasya/tutor', name: 'tasya', headline: 'SAT tutor', skills: ['errands'], pricing: [{ kind: 'fixed', amountUsd: 900 }], fetchedAt: 1 };
+    const r = await router.route(brief, { jobId: 'j1', limit: 5, only: [named] });
+    expect(r.sources).toEqual([]);
+    expect(r.candidates.map((c) => c.profile.id)).toEqual(['fiverr:tasya/tutor']);
+    expect(r.candidates[0]!.reason).toContain('Heads up: over budget.');
+    expect(events.some((e) => e.type === 'job.progress')).toBe(false);
+  });
+
   it('routes end to end on the fake source, filtering on-site location', async () => {
     const { router, events } = setup();
     const r = await router.route(brief, { jobId: 'j1', limit: 5 });

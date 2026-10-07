@@ -57,6 +57,18 @@ const settled = (store: ReturnType<typeof setup>['store'], id: string, status: s
   vi.waitFor(() => expect(store.getJob(id)?.status).toBe(status));
 
 describe('jobs', () => {
+  it('a pinned person skips the search: the shortlist is just them, until the hirer asks for other options', async () => {
+    const { jobs, store, calls } = setup();
+    const person = cand('tasya').profile;
+    const job = jobs.startJob({ brief, client: 'telegram', clientRef: '7', pinned: person });
+    await settled(store, job.id, 'awaiting_input');
+    expect(calls[0]![1].only).toEqual([person]);
+    expect(store.getJob(job.id)?.path).toBe('human');
+    jobs.provideInput(job.id, { action: 'refine', feedback: 'someone else' });
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1]![1].only).toBeUndefined();
+  });
+
   it('routes in the background and reaches awaiting_input with a shortlist', async () => {
     const { jobs, store, events } = setup();
     const job = jobs.startJob({ brief, client: 'local' });
