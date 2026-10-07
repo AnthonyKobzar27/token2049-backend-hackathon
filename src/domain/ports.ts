@@ -139,7 +139,8 @@ export interface SourceRegistry {
    * cache is served at once while a refresh runs, and a source still searching is marked
    * `late` and keeps going in the background to fill the cache.
    */
-  searchAll(brief: Brief, opts: { limitPerSource: number; jobId?: string; budgetMs?: number }): Promise<{ profiles: FreelancerProfile[]; sources: SourceStatus[] }>;
+  /** `skip`: source names not to search (platforms that do not fit the task). */
+  searchAll(brief: Brief, opts: { limitPerSource: number; jobId?: string; budgetMs?: number; skip?: string[] }): Promise<{ profiles: FreelancerProfile[]; sources: SourceStatus[] }>;
 }
 
 // ------------------------------------------------------------------ router

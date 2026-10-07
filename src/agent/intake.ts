@@ -1,3 +1,4 @@
+import { choosePlatforms } from '../router/platforms';
 import { z } from 'zod';
 import type { Config } from '../config';
 import type { Brief, Ms } from '../domain/types';
@@ -15,7 +16,8 @@ export interface Intake {
   next(history: IntakeTurn[]): Promise<IntakeResult>;
 }
 
-const MAX_ASK_ROUNDS = 2;
+/** Clarifying rounds before HAAS searches with what it has. */
+const MAX_ASK_ROUNDS = 4;
 
 /**
  * One call to config.MODEL_CHAT with a JSON schema output (no forced tool use: newer
@@ -90,11 +92,16 @@ const Out = z.object({
 const SYSTEM = `You are the intake step of HAAS, an open router for freelancers. A person describes work they want done; you turn the chat into a structured brief that is used to search freelancer platforms.
 
 Rules:
-- Ask a short clarifying question (action "ask", the question in "message") only for what matters and is missing: what exactly is needed, the budget, the deadline, and the location only if the task must be done on site. One message, at most two short questions. Never ask about things you can reasonably infer.
-- When you have enough (or the person has no more to add), return action "brief": "task" is a clear one or two sentence description, "skills" are 2 to 5 search terms, "remoteOk" is false only if the work must be done on site, "message" is a one-line plain summary for the person. Set language and timezone only if the person stated them; use null for anything unknown.
-- Day and time: if the person says when the work should happen ("Saturday 2-5pm", "tomorrow morning", "Oct 12 at 10"), set whenDate (YYYY-MM-DD, resolved against today's date below) and whenStart/whenEnd (24h "HH:MM", local to the location or stated timezone; a single time means a 2 hour window). Leave them null when no day or time is given; never ask about it for remote work.
+- Have a short back-and-forth before searching. Ask (action "ask", the question in "message") for whatever is missing from the essentials below, one friendly message with at most two questions per turn, most important first. Never ask about something the person already said or can be clearly inferred, and accept "flexible", "any" or "don't care" as an answer.
+- Essentials for work done IN PERSON (waiting in line, queueing for a launch or tickets, errands, pick-ups and drop-offs, deliveries, checking or photographing something on site, helping at an event): the exact place (address, venue or area), the date, the start time or time window, roughly how long it takes, and the budget.
+- Essentials for a LIVE SESSION (tutoring, lessons, coaching, interpreting, calls, meetings): whether online or in person (if in person, also the place), the date and time window, how long, the language, and the budget.
+- Essentials for REMOTE DELIVERABLES (design, writing, code, video, research): exactly what should be delivered, the budget, and the deadline.
+- If it is unclear whether the work needs someone physically present, ask that first.
+- When you have enough (or the person has no more to add), return action "brief": "task" is a clear one or two sentence description, "skills" are 2 to 5 search phrases a buyer would type into a marketplace search box to find the right person or service, understood from what the person actually wants (e.g. "wait in line for the iPhone launch" -> "line sitter", "queue standing", "errand runner"; "help my kid with the SAT" -> "SAT math tutor", "SAT prep"; "my site checkout is broken" -> "Shopify developer", "ecommerce bug fix"), never filler words, dates, budgets or place names, "remoteOk" is false only if the work must be done on site, "message" is a one-line plain summary for the person. Set language and timezone only if the person stated them; use null for anything unknown.
+- Day and time: if the person says when the work should happen ("Saturday 2-5pm", "tomorrow morning", "Oct 12 at 10"), set whenDate (YYYY-MM-DD, resolved against today's date below) and whenStart/whenEnd (24h "HH:MM", local to the location or stated timezone; a single time means a 2 hour window, or the stated duration). Leave them null when no day or time is given. Do not ask about day and time for remote deliverables; do ask for in-person work and live sessions.
+- hoursNeeded is the duration the person gave (a 2 hour session, about 3 hours in line).
 - On-site work: set "location" to the most specific place given (district, then city, then country). Set radiusKm only if the person says how far is acceptable.
-- taskType: "in_person" for on-site work, else "remote_creative" (design, video, writing, audio), "remote_technical" (software, data, smart contracts) or "remote_general".
+- taskType: "in_person" whenever someone must physically be somewhere (waiting in line, queueing, errands, pick-ups, deliveries, checking or photographing something, in-person lessons or help), even if the person did not say "on site"; else "remote_creative" (design, video, writing, audio), "remote_technical" (software, data, smart contracts) or "remote_general".
 - If the task is not legitimate work for a freelancer (solving CAPTCHAs, bypassing a site's controls, fake reviews, anything illegal or harmful), return action "refuse" with a short, polite explanation in "message".
 - Fill every field; use "" or [] or null where not applicable. Write in the person's language.`;
 
@@ -120,6 +127,30 @@ export function fallbackBrief(history: IntakeTurn[], now: Ms = Date.now()): { br
   return { brief, summary: summarize(brief) };
 }
 
+const LIVE_SESSION = /\b(tutor(ing)?|lesson|class|coach(ing)?|teach|interpret(er|ing)?|call|meeting|consult(ation)?|session)\b/i;
+
+/**
+ * Without a model: the most important missing essential as one short question, or undefined when
+ * the brief has enough. Mirrors the model's rules (place and time for in-person work, time for live
+ * sessions, budget always). A topic already asked about is not asked again.
+ */
+export function missingQuestion(brief: Brief, history: IntakeTurn[]): string | undefined {
+  const asked = history.filter((t) => t.from === 'agent').map((t) => t.text.toLowerCase()).join(' ');
+  const said = history.filter((t) => t.from === 'hirer').map((t) => t.text.toLowerCase()).join(' ');
+  const flexible = /\b(flexible|any ?time|whenever|don'?t care|no preference|anywhere)\b/.test(said);
+  const text = [brief.task, brief.notes].filter(Boolean).join(' ');
+  const inPerson = brief.remoteOk === false || brief.taskType === 'in_person';
+  const live = LIVE_SESSION.test(text);
+  const missing: { topic: string; question: string }[] = [];
+  if (inPerson && !brief.location) missing.push({ topic: 'where', question: 'Where exactly should they go (address, venue or area)?' });
+  if ((inPerson || live) && !brief.when?.date && !flexible) missing.push({ topic: 'when', question: 'What day and time should this happen?' });
+  if (live && !inPerson && !/\b(online|remote|zoom|google meet|in person|in-person)\b/.test(said)) missing.push({ topic: 'online', question: 'Should this be online or in person?' });
+  if ((inPerson || live) && brief.hoursNeeded === undefined) missing.push({ topic: 'how long', question: 'Roughly how long will it take?' });
+  if (brief.budgetUsd === undefined) missing.push({ topic: 'budget', question: "What's your budget?" });
+  const next = missing.filter((m) => !asked.includes(m.topic) && !asked.includes(m.question.toLowerCase())).slice(0, 2);
+  return next.length ? next.map((m) => m.question).join(' ') : undefined;
+}
+
 export function summarize(brief: Brief): string {
   const parts = [brief.task];
   if (brief.skills.length) parts.push(`Skills: ${brief.skills.join(', ')}`);
@@ -128,7 +159,10 @@ export function summarize(brief: Brief): string {
   if (brief.location) parts.push(`Location: ${brief.location}${!brief.remoteOk && brief.radiusKm !== undefined ? ` (within ${brief.radiusKm} km)` : ''}`);
   const when = describeWhen(brief.when);
   if (when) parts.push(`When: ${when}`);
+  if (brief.hoursNeeded !== undefined) parts.push(`Duration: about ${brief.hoursNeeded} h`);
+  if (brief.language) parts.push(`Language: ${brief.language}`);
   parts.push(brief.remoteOk ? 'Remote is fine' : 'On site');
+  parts.push(choosePlatforms(brief).why);
   return parts.join('\n');
 }
 
@@ -137,7 +171,12 @@ export function createIntake(deps: { config: Config; now?: () => Ms }): Intake {
   const clock = deps.now ?? Date.now;
   return {
     async next(history) {
-      if (!hasLlm(config)) return { kind: 'brief', ...fallbackBrief(history, clock()) };
+      if (!hasLlm(config)) {
+        const fb = fallbackBrief(history, clock());
+        const rounds = history.filter((t) => t.from === 'agent').length;
+        const question = rounds < MAX_ASK_ROUNDS ? missingQuestion(fb.brief, history) : undefined;
+        return question ? { kind: 'ask', text: question } : { kind: 'brief', ...fb };
+      }
 
       const rounds = history.filter((t) => t.from === 'agent').length;
       const now = clock();
