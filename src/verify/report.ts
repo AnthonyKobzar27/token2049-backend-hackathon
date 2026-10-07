@@ -1,4 +1,5 @@
 // Plain-text rendering of a QA report: approval details, revision requests, logs.
+import { freelancerSafe } from '../agent/outreach';
 import type { VerificationReport } from '../domain/types';
 
 const VERDICT_TEXT: Record<VerificationReport['verdict'], string> = {
@@ -21,6 +22,8 @@ export function qaSummaryText(r: VerificationReport): string {
 /** What the freelancer is asked to fix after a failed QA run. */
 export function revisionRequestText(r: VerificationReport): string {
   const failed = r.checks.filter((c) => !c.ok);
-  const items = failed.length ? failed.map((c) => `- ${c.detail}`) : [`- ${r.summary}`];
+  // Check details are written by our verifier: keep only what a person would say to a person.
+  const items = (failed.length ? failed.map((c) => c.detail) : [r.summary]).map((d) => freelancerSafe(d)).filter(Boolean).map((d) => `- ${d}`);
+  if (!items.length) items.push("- it doesn't quite match what I asked for yet");
   return ['Thanks for sending this over! Just a couple of fixes before I can sign off:', ...items, 'Send the updated version when you can. Thanks!'].join('\n');
 }

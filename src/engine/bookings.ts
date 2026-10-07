@@ -4,6 +4,7 @@ import { newId, now as clockNow } from '../domain/ids';
 import type { ApprovalGate, BookingService, EscrowProvider, EventBus, SourceRegistry, Store } from '../domain/ports';
 import type { Booking, BookingDelivery, BookingStatus, Brief, Candidate, DeliveredResult, EscrowRecord, FreelancerProfile, Job, VerificationReport } from '../domain/types';
 import { deliveryHash, normaliseDelivery } from '../verify/hash';
+import { freelancerSafe } from '../agent/outreach';
 import { qaSummaryText, revisionRequestText } from '../verify/report';
 import { createResultVerifier, type ResultVerifier } from '../verify/verifier';
 
@@ -540,7 +541,9 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
       const { approved } = await gate.request({ action: 'revise', jobId: booking.jobId, bookingId: id, summary: `Request a revision (${booking.platform})`, detail: text });
       if (!approved) return need(id);
       const source = registry.get(booking.source);
-      if (source?.requestRevision && booking.platformRef) await source.requestRevision(booking.platformRef, text);
+      // The operator's own words, minus anything about HAAS, agents or crypto (the freelancer never reads that).
+      const safe = freelancerSafe(text);
+      if (source?.requestRevision && booking.platformRef && safe) await source.requestRevision(booking.platformRef, safe);
       return move(id, 'in_revision', { note: text });
     },
 

@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { structuredCall } from '../agent/intake';
+import { cleanForFreelancer } from '../agent/outreach';
 import type { Config } from '../config';
 import type { Brief } from '../domain/types';
 import { hasLlm } from '../llm/client';
@@ -83,9 +84,11 @@ export function rulesSpec(brief: Brief): BountySpec {
 
   const reward = rewardFor(brief, estMinutes);
   const where = placeName ?? found?.name;
+  const notes = cleanForFreelancer(brief.notes);
   const steps = [
-    brief.task.trim().replace(/\.?$/, '.'),
-    brief.notes ? `Details from the client: ${brief.notes}` : undefined,
+    (cleanForFreelancer(brief.task) || brief.task.trim()).replace(/\.?$/, '.'),
+    // The intake's bookkeeping ("defaulted to…") and payment rails are not instructions for the worker.
+    notes ? `Details from the client: ${notes}` : undefined,
     kind === 'phone_call' ? 'Say you are calling on behalf of a client. Share only the details given here.' : undefined,
     `Then submit: ${fields.filter((x) => x.required).map((x) => x.label.toLowerCase()).join(', ')}.`,
     'If it cannot be done, say why in the notes instead of guessing.',
@@ -165,7 +168,7 @@ export async function deriveSpec(brief: Brief, config: Config): Promise<BountySp
   try {
     const out = await structuredCall(
       config,
-      { system: SYSTEM, messages: [{ role: 'user', content: JSON.stringify({ task: brief.task, notes: brief.notes, location: brief.location }) }], schema: SCHEMA, maxTokens: 1200 },
+      { system: SYSTEM, messages: [{ role: 'user', content: JSON.stringify({ task: brief.task, notes: cleanForFreelancer(brief.notes), location: brief.location }) }], schema: SCHEMA, maxTokens: 1200 },
       (raw) => LlmOut.parse(raw),
     );
     const keys = new Set(out.fields.map((x) => x.key));

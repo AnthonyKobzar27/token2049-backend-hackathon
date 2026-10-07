@@ -50,6 +50,16 @@ describe('liaison', () => {
     expect(t.events.filter((e) => e.type === 'conversation.message')).toHaveLength(2);
   });
 
+  it('drops sentences about HAAS, agents or crypto from a reply, and sends nothing when only those remain', async () => {
+    const t = setup({ decision: { action: 'reply', text: 'Friday works. The escrow on Solana is already funded.' } });
+    await t.liaison.tick();
+    expect(t.sent).toEqual(['Friday works.']);
+    const u = setup({ decision: { action: 'reply', text: 'Our AI agent will confirm.' } });
+    await u.liaison.tick();
+    expect(u.sent).toEqual([]);
+    expect(u.gate.request).not.toHaveBeenCalled();
+  });
+
   it('sends nothing when the gate denies', async () => {
     const t = setup({ approve: false });
     await t.liaison.tick();

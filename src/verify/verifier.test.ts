@@ -157,4 +157,11 @@ describe('result verifier', () => {
     expect(qaSummaryText(r)).toContain('[x] field:time');
     expect(revisionRequestText(r)).toContain('- required field "time" is missing');
   });
+
+  it('keeps our internals out of a revision request', () => {
+    const r = { verdict: 'fail', score: 0.2, attempt: 1, resultHash: 'h', summary: 'The escrow agent rejected it.', checks: [{ name: 'quality_review', ok: false, detail: 'The AI rubric says the logo is blurry.' }] } as unknown as Parameters<typeof revisionRequestText>[0];
+    const text = revisionRequestText(r);
+    expect(text).not.toMatch(/\b(ai|agent|escrow)\b/i);
+    expect(text).toContain("- it doesn't quite match what I asked for yet");
+  });
 });

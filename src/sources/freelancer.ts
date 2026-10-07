@@ -350,7 +350,8 @@ export function createFreelancerSource(config: Config): FreelancerSource {
   }
 
   async function requestRevision(platformRef: string, text: string): Promise<void> {
-    await sendMessage(platformRef, `Revision requested: ${text}`);
+    // The text already reads as a person asking for changes; a "Revision requested:" label would read like a form.
+    await sendMessage(platformRef, text);
   }
 
   return {
