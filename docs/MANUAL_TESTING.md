@@ -1,6 +1,6 @@
 # Manual testing before the demo
 
-This guide is for testing HAAS by hand on a Mac before the demo. Work through it top to bottom. Each step says what to run, what you should see, what failure looks like, and which automated tests already cover it.
+This guide is for testing HAAS by hand on a Mac before the demo. Start with **Your manual checklist** below: it lists everything only a person can do. Then work through the sections top to bottom. Each step says what to run, what you should see, what failure looks like, and which automated tests already cover it.
 
 Written 2026-10-06 against branch `integration/all-features` at `1f9f047`.
 
@@ -13,6 +13,71 @@ pnpm typecheck  -> tsc --noEmit, no output, exit 0
 ```
 
 Sections 2.1, 2.5–2.8 and 2.10–2.13 were also run by hand, with no keys, against a live `pnpm start`. The outputs quoted below come from those runs. The sandbox could not reach freelancer.com or rentahuman.ai. On your Mac those two sources should answer too.
+
+---
+
+## Your manual checklist
+
+Everything here needs a person, an account, a wallet or an approval. No agent can do it. Work top to bottom: items are ordered by how much they matter for winning the Cardano track. Tick them off as you go.
+
+### A. Today, most important first
+
+1. [ ] **Run one live paid Cardano Task.** This is the Cardano track's required proof: a Preprod collection transaction paying the seller in test USDM through your own Masumi Payment Service. Start it **at least 2 hours before the deadline**; the unlock and collection wait alone is about 60 minutes. Steps: section 2.14 and `docs/LIVE_CARDANO_PAYMENT.md`.
+2. [ ] **Start the Masumi Payment Service (MPS).** Its docker compose has never been run, so leave time for fixes. Steps: "The Masumi payment service" in section 1. Fallback: runbook §5, option B.
+3. [ ] **Deploy the Solana escrow program to devnet**, or demo with `ESCROW_PROVIDER=memory` and say so. `SOLANA_ESCROW_PROGRAM_ID` is a placeholder until you run `anchor deploy` and `pnpm spike:solana`. Steps: section 2.8 and `programs/haas-escrow/README.md`.
+4. [ ] **Pick one real Masumi AI agent** for the "try an AI agent first" path and set `AI_AGENT_URL`. If you don't, set `AI_DELEGATION=human` so the demo stays on the human path. Steps: section 2.5.
+5. [ ] **Configure Telegram before the demo** (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_OPERATOR_ID`). Without it every approval (book, accept, release) is granted automatically. Steps: section 2.2.
+
+### B. Accounts and keys to get
+
+- [ ] **Anthropic API key** (`ANTHROPIC_API_KEY`) from console.anthropic.com. Turns on LLM scoping, AI-vs-human, better scoring and the Claude QA rubric. Without it QA returns `needs_human`.
+- [ ] **Blockfrost Preprod project** (`BLOCKFROST_PROJECT_ID`, and `BLOCKFROST_API_KEY_PREPROD` in `infra/masumi/.env`). Must be a Preprod key; a Mainnet key returns 403.
+- [ ] **Masumi dispenser access.** It asks for a code from your registration email. Request it early. You need tADA, the 5 ADA collateral and test USDM from https://dispenser.masumi.network.
+- [ ] **Sokosumi Preprod account**, then a Vendor (needs an organization first) and a Coworker with the `sokosumi` CLI. Add workspace credits with the Stripe test card. Steps: `docs/LIVE_CARDANO_PAYMENT.md` §4.
+- [ ] **Join the event workspace** at https://preprod.sokosumi.com/join/9Ycw8wzmzXB2WEKa-umzUJX6_GEFiVdu and run `coworkers connect`. It stays PENDING until a Masumi admin approves it, so do this early and ask them.
+- [ ] **Railway account** (or another host) for the worker, MPS and Postgres, with serverless off. The guide wants the deployed URL in the submission.
+- [ ] **Solana devnet wallet** (`solana-keygen new`, airdrop SOL) and **devnet USDC** from https://faucet.circle.com.
+- [ ] **Cardano minting wallet** for reputation: `pnpm identity:wallet`, then fund it with tADA.
+- [ ] **Teammates' details** for the bounty board: Telegram ids and Cardano and Solana addresses (`WORKER_NITHYA_*`, `WORKER_OLIVER_*` and so on), then `pnpm seed:workers`.
+- [ ] Optional: **Upwork API key** (needs Upwork's approval), **Prolific API token**, a **KERIA server** for Veridian (`docs/VERIDIAN.md`), **x402 pay-to addresses** (`docs/X402.md`).
+
+### C. Register and list the agent on Masumi
+
+- [ ] Expose HAAS on a public HTTPS URL and set `PUBLIC_URL`.
+- [ ] Fund the selling wallet, create the MPS Read and Pay key (`MASUMI_API_KEY`).
+- [ ] Run `pnpm register:agent`. Wait for `RegistrationConfirmed`. Copy `MASUMI_AGENT_IDENTIFIER` and `MASUMI_SELLER_VKEY` into `~/.haas/.env`. (The boot line says `masumi payments: on` with only the API key; paid jobs also need the identifier.)
+- [ ] Run a **rehearsal Task**, then the **paid Task** in your Personal Workspace (you don't need to wait for event approval for the paid one).
+- [ ] Record for the submission: rehearsal and paid Task IDs, Coworker ID, Preprod transaction hash and explorer link, seller address, USDM unit, and the measured net amount received.
+
+### D. Run each live service once
+
+Each of these has code and tests but has never run against the real service.
+
+- [ ] Live search on Freelancer.com and RentAHuman from your Mac (section 2.6).
+- [ ] A paid MIP-003 job against your MPS (section 2.1, paid mode).
+- [ ] The Telegram bot end to end, hirer and worker commands (sections 2.2 and 2.9).
+- [ ] Hiring your chosen Masumi AI agent (section 2.5).
+- [ ] A Solana Pay deposit, release and refund-after-timeout on devnet (sections 2.8 and 2.11).
+- [ ] A reputation mint on Preprod: `pnpm identity:demo --live` (section 2.12).
+- [ ] Optional: x402 payment on Cardano and on Solana; Veridian issue and verify; Upwork and Prolific searches.
+
+### E. Small fixes before recording
+
+- [ ] Shortlist text shows `4.9 from 0 reviews` and `$2.22 fixed in 0 days`. Hide zero counts.
+- [ ] A "Verified HAAS worker" headline can sit next to `"verified":false`. Make them agree.
+- [ ] Update stale docs: `docs/LIVE_CARDANO_PAYMENT.md` §1, §8, §9, §13 (the worker exists, pricing is Dynamic, windows are configurable); `docs/DELEGATION_AND_SPEED.md` (it says no Masumi agent is called); `docs/IDENTITY.md:115` (it says nothing emits `verification.completed`).
+- [ ] Make the boot log say `masumi payments: off` unless `MASUMI_AGENT_IDENTIFIER` is also set.
+- [ ] Use Node 24 if you also run the Sokosumi CLI.
+- [ ] Bounty payouts are ledger lines, not transfers. Either pay through the Solana escrow (worker wallet as payee) or say so in the pitch.
+
+### F. Submission and demo
+
+- [ ] Confirm the hackathon kickoff time against the repo's first commit (2026-10-06 13:56 Singapore time) and be ready to explain how the commits were made. The rules say all work must start after kickoff.
+- [ ] Confirm the submission deadline and time zone on the BuilderBase rules page (it needs a login).
+- [ ] Decide whether to merge `integration/all-features` (or this branch) into `main`. Nothing has been merged to `main`.
+- [ ] Rehearse the clinic story (section 3) and **record the demo**. The Cardano track only accepts a recording embedded in the deck; live demos and external video links don't count.
+- [ ] Build the deck (Google Drive link to .ppt or .keynote with the recording embedded) and fill in: public repo and run instructions, deployed agent URL, Coworker ID, sample Task, Task IDs, transaction hash, seller address, USDM unit, net amount received.
+- [ ] Submit to the Cardano track and, if allowed, the Solana track.
 
 ---
 
