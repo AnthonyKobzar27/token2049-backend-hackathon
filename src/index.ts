@@ -129,7 +129,7 @@ const server = app.listen(config.PORT, () => {
   console.log(`[haas] sources: ${registry.enabled().map((s) => s.name).join(', ') || 'none enabled'}`);
   if (config.DEMO_MODE) console.log(`[haas] demo mode: pinned cache, ${config.DEMO_BUDGET_MS} ms budget (warm it with pnpm demo:warm)`);
   console.log(`[haas] AI-first: ${config.AI_DELEGATION}; agent: ${config.AI_AGENT_URL ?? (config.MASUMI_REGISTRY_URL ? 'registry search' : 'none')}`);
-  console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? 'on' : 'off'}; x402: ${config.X402_PAY_TO || config.X402_SOLANA_PAY_TO ? 'on' : 'off'}; identity: ${identity ? config.CARDANO_NETWORK : 'off'}`);
+  console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? (config.MASUMI_AGENT_IDENTIFIER ? 'on' : 'partial (set MASUMI_AGENT_IDENTIFIER)') : 'off'}; x402: ${config.X402_PAY_TO || config.X402_SOLANA_PAY_TO ? 'on' : 'off'}; identity: ${identity ? config.CARDANO_NETWORK : 'off'}`);
   // After listen: KERIA resolves the schema OOBI from this server.
   veridian?.issuer
     .init()

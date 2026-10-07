@@ -62,9 +62,9 @@ export function candidateCard(c: Candidate, index: number): string {
   if (p.headline) lines.push(esc(p.headline));
   const facts: string[] = [];
   if (c.quoteUsd !== undefined) facts.push(`quote ${usd(c.quoteUsd)}`);
-  if (p.rating !== undefined) facts.push(`rating ${p.rating.toFixed(1)}${p.reviewCount !== undefined ? ` (${p.reviewCount} reviews)` : ''}`);
+  if (p.rating !== undefined) facts.push(`rating ${p.rating.toFixed(1)}${p.reviewCount ? ` (${p.reviewCount} reviews)` : ''}`);
   const days = c.pricingIndex !== undefined ? p.pricing[c.pricingIndex]?.deliveryDays : p.pricing[0]?.deliveryDays;
-  if (days !== undefined) facts.push(`delivery ${days} d`);
+  if (days) facts.push(`delivery ${days} d`);
   if (p.country) facts.push(esc(p.country));
   if (facts.length) lines.push(facts.join(' · '));
   if (c.reason) lines.push(`<i>${esc(c.reason)}</i>`);

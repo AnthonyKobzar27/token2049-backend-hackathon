@@ -57,7 +57,7 @@ export function createBountySource(deps: BountySourceDeps): FreelancerSource {
             platformId: w.id,
             url: `${base}/bounty/workers/${w.id}`,
             name: w.name,
-            headline: `Verified HAAS worker in ${w.location.area ?? w.location.city}${dist ? `, ${dist}` : ''}`,
+            headline: `${w.verified ? 'Verified HAAS worker' : 'HAAS worker'} in ${w.location.area ?? w.location.city}${dist ? `, ${dist}` : ''}`,
             description: `Takes short tasks such as calls and errands. Posted as: ${spec.title}`,
             skills: [...w.skills],
             category: 'microtask',
@@ -66,9 +66,9 @@ export function createBountySource(deps: BountySourceDeps): FreelancerSource {
             ...(w.location.country === 'SG' && { timezone: 'Asia/Singapore' }),
             ...(w.languages && { languages: w.languages }),
             availability: { online: w.available, responseHours: 0.25 },
-            pricing: [{ kind: 'fixed', amountUsd: reward.usd, original: { amount: reward.amount, currency: reward.currency }, label: `Bounty ${rewardLabel(reward)}`, deliveryDays: 0 }],
+            pricing: [{ kind: 'fixed', amountUsd: reward.usd, original: { amount: reward.amount, currency: reward.currency }, label: `Bounty ${rewardLabel(reward)}` }],
             ...(w.rating !== undefined && { rating: w.rating }),
-            reviewCount: w.completed,
+            ...(w.completed > 0 && { reviewCount: w.completed }),
             level: 'HAAS verified',
             verified: w.verified,
             // Direct mode: the escrow pays this worker's wallet on release. Broadcast mode leaves the
@@ -82,7 +82,7 @@ export function createBountySource(deps: BountySourceDeps): FreelancerSource {
     async getProfile(platformId) {
       const w = board.getWorker(platformId);
       if (!w) return null;
-      return { id: `bounty:${w.id}`, platform: 'bounty', platformId: w.id, url: `${base}/bounty/workers/${w.id}`, name: w.name, headline: `Verified HAAS worker in ${w.location.city}`, skills: w.skills, country: w.location.country, city: w.location.city, pricing: [], rating: w.rating, reviewCount: w.completed, verified: w.verified, fetchedAt: Date.now() };
+      return { id: `bounty:${w.id}`, platform: 'bounty', platformId: w.id, url: `${base}/bounty/workers/${w.id}`, name: w.name, headline: `${w.verified ? 'Verified HAAS worker' : 'HAAS worker'} in ${w.location.city}`, skills: w.skills, country: w.location.country, city: w.location.city, pricing: [], rating: w.rating, ...(w.completed > 0 && { reviewCount: w.completed }), verified: w.verified, fetchedAt: Date.now() };
     },
 
     async book(req) {

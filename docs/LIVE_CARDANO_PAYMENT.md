@@ -17,7 +17,7 @@ The Cardano track does **not** accept "our MIP-003 API works". It wants:
 
 A Task marked `COMPLETED`, a credit debit, or a `PURCHASED` state does **not** prove payment. Only the confirmed collection transaction does.
 
-## 1. The big picture, and the gap in our code
+## 1. The big picture
 
 ```
 Sokosumi Task  ──(HAAS worker polls)──>  HAAS worker ──> HAAS router (search, rank)
@@ -32,7 +32,7 @@ Sokosumi Task  ──(HAAS worker polls)──>  HAAS worker ──> HAAS router
 
 The repo has the right-hand side: the MIP-003 API (`src/masumi/api.ts`), the MPS client (`src/masumi/payments.ts`), the payment watcher (`src/masumi/watcher.ts`) and MPS infra (`infra/masumi/`).
 
-**It does not have the left-hand side: a Sokosumi Task worker.** The track's paid flow goes through a Coworker that **polls** Sokosumi for Tasks. Sokosumi does not call our `/start_job` for this. Someone has to build `src/sokosumi/worker.ts` (section 9). This is the biggest single piece of work on the critical path.
+**It also has the left-hand side: the Sokosumi Task worker** (`src/sokosumi/worker.ts`). The track's paid flow goes through a Coworker that **polls** Sokosumi for Tasks; Sokosumi does not call our `/start_job` for this. The worker starts inside `pnpm start` when `SOKOSUMI_COWORKER_ID` is set, or on its own with `pnpm sokosumi:worker` (section 9). What remains on the critical path is configuration and rehearsal, not construction.
 
 ## 2. Time budget at a glance
 
@@ -44,14 +44,14 @@ The repo has the right-hand side: the MIP-003 API (`src/masumi/api.ts`), the MPS
 | 6. Fund wallets | 5 min | 5–15 min (dispenser and collateral) | 9 |
 | 7. Deploy HAAS publicly | 30–60 min | — | 6 |
 | 8. Register the agent (Dynamic, USDM) | 10 min | 3–15 min (mint) | 9 |
-| 9. Build the Sokosumi worker | **3–6 h** | — | 6, 8, 11 |
+| 9. Configure the Sokosumi worker | 30 min | — | 6, 8, 11 |
 | 10. Rehearsal Task | 15 min | — | — |
 | 11. Join the event Workspace, ask for approval | 5 min | **unknown, human** | everything |
 | 12. Paid Task | 10 min | 3–10 min (escrow funding) | — |
-| 13. Unlock and collect | — | **45–60 min with the timing fix; 4 h 20 min+ with today's code** | the deck |
+| 13. Unlock and collect | — | **~60 min with the default windows** | the deck |
 | 14. Record artifacts | 20 min | — | — |
 
-Critical path: worker build, then rehearsal, then paid Task, then the unlock wait. **Start the paid Task at least 2 hours before the deadline. With today's timing code, at least 6 hours.**
+Critical path: worker configuration, then rehearsal, then paid Task, then the unlock wait. **Start the paid Task at least 2 hours before the deadline.**
 
 ## 3. Accounts (20 min)
 
@@ -183,16 +183,7 @@ Moving an existing local MPS: stop the worker and MPS, copy the database, restor
 
 ## 8. Register the HAAS agent (10 min, then 3–15 min for the mint)
 
-The guide's required pricing differs from `scripts/register-agent.ts`:
-
-| | Guide | `scripts/register-agent.ts` today |
-|---|---|---|
-| Pricing | `supportedPaymentSources[].pricing = {"pricingType":"Dynamic"}` and nothing else (no `fixed`, `dynamic`, asset list or `decimals`) | `Fixed`, `3000000` lovelace, `decimals: 6` |
-| Asset | test USDM, 1 USDM = `1000000` units, quoted per Task | ADA |
-| Access model | `Standard` (default) with `apiBaseUrl` = the HAAS URL, not the MPS URL | `apiBaseUrl` set; access model left to the default |
-| Example outputs | worth filling | `[]` |
-
-**Fix before running:** in the V2 branch of `register-agent.ts`, replace the `pricing` object with `{ pricingType: 'Dynamic' }`. Add `ExampleOutputs` and better `Tags` (see `docs/MASUMI_MARKETPLACE.md`).
+`scripts/register-agent.ts` follows the guide's required pricing. On a V2 payment source it registers `pricing = {"pricingType":"Dynamic"}` and nothing else (no `fixed`, asset list or `decimals`); each payment request then carries the quote, 1 test USDM = `1000000` units by default (`MASUMI_PRICE_AMOUNT` of `MASUMI_PRICE_UNIT`). A V1 source has no Dynamic pricing, so there the script registers that quote as a Fixed price. It also sets `apiBaseUrl` to the HAAS URL (not the MPS URL), leaves the access model at the `Standard` default, and fills `Tags` and an `ExampleOutputs` entry pointing at the MIP-003 `/demo` sample. `--dry-run` prints the request body and sends nothing.
 
 ```sh
 # ~/.haas/.env (or Railway variables) needs PUBLIC_URL=https://..., MASUMI_API_URL, MASUMI_API_KEY
@@ -203,23 +194,21 @@ The script waits for the mint and prints `MASUMI_AGENT_IDENTIFIER` and `MASUMI_S
 
 `RegistrationFailed` almost always means the selling wallet has no ADA or no collateral yet.
 
-## 9. Build the Sokosumi worker (3–6 h, the critical path)
+## 9. The Sokosumi worker (built; configure and rehearse)
 
-HAAS has no worker yet. Add `src/sokosumi/worker.ts` and start it from `src/index.ts` when `SOKOSUMI_COWORKER_ID` is set. Keep one worker per Coworker (one Railway replica, with the local worker stopped).
+The worker exists: `src/sokosumi/worker.ts`. It starts inside `pnpm start` when `SOKOSUMI_COWORKER_ID` is set, or on its own with `pnpm sokosumi:worker` (`--check` for an identity check, `--once` for a single pass, `--status` for the journal). Paid Tasks also need `SOKOSUMI_PAID_TASKS=true`, `MASUMI_API_URL`, `MASUMI_API_KEY` and `MASUMI_AGENT_IDENTIFIER`. Keep one worker per Coworker (one Railway replica, with the local worker stopped).
 
-The loop, per the guide's "Run a paid Task" section:
+Its loop, per the guide's "Run a paid Task" section:
 
-1. **Find a READY Task** assigned to the Coworker. Save the Task ID and input **before** writing anything anywhere.
-2. **Start it**: `sokosumi --preprod runtime start <TASK_ID> --coworker-id <ID> --personal --json`. On a host without the CLI vault, pass the key with `--api-key-stdin`.
-3. **Paid Tasks only: request signed terms** from MPS: `POST /payment`. `createPayment` in `src/masumi/payments.ts` already does this. Two changes:
-   - Dynamic pricing needs the quote in the request: 1 USDM = `{"amount":"1000000","unit":"16a55b…5344d"}`. The exact field name is in `mps-openapi.json` (unverified; look for something like `RequestedFunds`). Use strings, not numbers.
-   - **Shorten the times** (see section 13). Today unlock is 4 h 20 min after the job starts.
-4. **Post the `masumiPayment` event** to the Task event endpoint with the Coworker credential. Core charges credits and funds escrow. The guide does not give the endpoint path; read the CLI's `--help`, the API reference (https://www.masumi.network/dev/sokosumi/api-reference) and the `tasks` Skill from `sokosumi skills` (unverified).
-5. **Wait for `FundsLocked`.** `createWatcher` already polls MPS every 15 s; reuse `payments.getPayment`.
-6. **Run HAAS with no check-in.** A Sokosumi Task has no `awaiting_input` round-trip in this flow, so the result is the **ranked shortlist** (no booking). Add an option to `jobs.startJob` that ends at the shortlist instead of pausing.
-7. **Save the exact UTF-8 result** (max 1 MiB) and compute `resultHash(result, identifierFromPurchaser)` from `src/masumi/hash.ts`. The guide warns that raw and JSON-escaped hashing differ. Test with a result containing newlines, quotes and backslashes against what Core expects (unverified which one Core uses).
-8. **Submit the hash** with `payments.submitResult`, **then** run `sokosumi --preprod runtime complete <TASK_ID> --coworker-id <ID> --personal --result-file result.txt --json`. `runtime complete` does not submit the hash and does not collect.
-9. **Journal** Task ID, blockchainIdentifier, signed deadlines, result bytes and hash, and every pending write in the SQLite store under `HAAS_HOME`, so a restart neither loses nor double-submits a payment.
+1. **Find a READY Task** assigned to the Coworker. The Task ID and input are journaled **before** any write.
+2. **Start it**: the `{ status: RUNNING }` event on `POST /v1/tasks/{id}/events`, with the Coworker credential (`src/sokosumi/core.ts`).
+3. **Paid Tasks only: request signed terms** from MPS: `POST /payment` via `createPayment` in `src/masumi/payments.ts`. Dynamic pricing carries the quote in `RequestedFunds` (strings, not numbers), 1 test USDM by default. The deadline times come from the `SOKOSUMI_*_MIN` settings (section 13).
+4. **Post the `masumiPayment` event** on the same Task event endpoint. Core charges credits and funds escrow.
+5. **Wait for `FundsLocked`**, polling `payments.getPayment` on MPS.
+6. **Run HAAS with no check-in.** A Sokosumi Task has no `awaiting_input` round-trip in this flow, so the result is the **ranked shortlist** (no booking; `src/sokosumi/haas.ts`).
+7. **Save the exact UTF-8 result** (max 1 MiB) and compute `resultHash(result, identifierFromPurchaser)` from `src/masumi/hash.ts`. The guide warns that raw and JSON-escaped hashing differ; rehearse a result with newlines, quotes and backslashes against what Core expects (unverified which one Core uses).
+8. **Submit the hash** with `payments.submitResult`, **then** complete the Task with the `{ status: COMPLETED, comment: result }` event. Completing does not submit the hash and does not collect.
+9. **Journal**: Task ID, blockchainIdentifier, signed deadlines, result bytes and hash, and every pending write sit in the SQLite store under `HAAS_HOME` (kv `sokosumi:task:<id>`), so a restart neither loses nor double-submits a payment.
 
 ## 10. Rehearsal Task (15 min)
 
@@ -276,20 +265,20 @@ How long escrow funding takes depends on Core's own payment node (unverified). W
 
 The seller can only collect **after `unlockTime`**, if no refund was requested. The guide adds: "V2 timed collection includes a delay after unlock; it is not immediate at Task completion." It does not say how long that delay is (unverified). MPS then needs one more collection poll (30 s in our compose; 3–5 min by default) and one block (~20 s).
 
-**With today's code** (`defaultTimes` in `src/masumi/payments.ts`):
-payByTime +30 min, submitResultTime +4 h, **unlockTime +4 h 20 min**, dispute +4 h 40 min.
-You would wait **more than 4 h 20 min** for proof of collection.
+**The times are configurable** (`MASUMI_*_MIN` and `SOKOSUMI_*_MIN` in `.env.example`; `defaultTimes` in `src/masumi/payments.ts` enforces the 0.29.0 floors: result ≥ now + 15 min, pay ≤ result − 5 min, unlock ≥ result + 15 min, dispute ≥ unlock + 15 min).
 
-**Fix (recommended for the demo):** make the times configurable and use the smallest gaps the API accepts. The repo comment records the 0.29.0 rules: result ≥ now + 15 min, pay ≤ result − 5 min, unlock ≥ result + 15 min, dispute ≥ unlock + 15 min.
+The Sokosumi worker's defaults:
 
-| Field | Proposed | Why |
+| Field | Default | Why |
 |---|---|---|
-| payByTime | now + 20 min | room for Core to fund |
-| submitResultTime | now + 30 min | HAAS needs 1–3 min to search and rank |
-| unlockTime | now + 45 min | the minimum gap |
-| externalDisputeUnlockTime | now + 60 min | the minimum gap |
+| payByTime | now + 15 min (`SOKOSUMI_PAY_WINDOW_MIN`) | room for Core to fund |
+| submitResultTime | now + 25 min (`SOKOSUMI_RESULT_WINDOW_MIN`) | HAAS needs 1–3 min to search and rank |
+| unlockTime | result + 16 min (`SOKOSUMI_UNLOCK_DELAY_MIN`) | just over the minimum gap |
+| externalDisputeUnlockTime | unlock + 16 min (`SOKOSUMI_DISPUTE_DELAY_MIN`) | just over the minimum gap |
 
-Collection then lands about **45–60 min after the terms are signed**, plus the unknown V2 delay. **Budget 90 minutes.** Shorter windows give a buyer less time to dispute; fine on Preprod with a 1 USDM job, but say so in the deck.
+(The MIP-003 API path uses the roomier `MASUMI_*_MIN` defaults: pay 20 min, result 90 min, the same +16 min delays.)
+
+Collection then lands about **60 min after the terms are signed**, plus the unknown V2 delay. **Budget 90 minutes.** Shorter windows give a buyer less time to dispute; fine on Preprod with a 1 USDM job, but say so in the deck.
 
 `AUTO_WITHDRAW_PAYMENTS=true` should make MPS collect by itself. If nothing happens 15 min after unlock, look at the payment's `NextAction` in the admin UI, or `GET /payment/diff/next-action`, before retrying anything.
 
@@ -343,9 +332,9 @@ Before publishing anything, check staged files and history for keys, mnemonics, 
 - [ ] Selling wallet: ADA + 5 ADA collateral confirmed on chain
 - [ ] Personal Workspace credits (Stripe test card)
 - [ ] HAAS deployed on Railway, serverless off, volume on `HAAS_HOME`, `PUBLIC_URL` HTTPS
-- [ ] `register-agent.ts` switched to Dynamic; `RegistrationConfirmed`; agent id, source index, policy id, contract address, seller vkey and address saved
-- [ ] Payment times shortened and configurable
-- [ ] Sokosumi worker built; one executor; journal in `HAAS_HOME`
+- [ ] Registered with Dynamic pricing; `RegistrationConfirmed`; agent id, source index, policy id, contract address, seller vkey and address saved
+- [ ] Payment windows checked (`SOKOSUMI_*_MIN`)
+- [ ] Sokosumi worker running; one executor; journal in `HAAS_HOME`
 - [ ] Rehearsal Task `COMPLETED`; IDs saved
 - [ ] Event Workspace joined; Coworker connected; access ID saved; approval requested **early**
 - [ ] Paid Task done; deadlines recorded; `FundsLocked`; result hash submitted; Task `COMPLETED`

@@ -112,6 +112,6 @@ Costs are a few test ADA. A credential locks the minimum ADA in the two token ou
 
 ## Not done yet
 
-- **Inbound events.** The minter listens for `verification.completed` (QA agent) and `payment.collected` (Masumi collection). Nothing in the app emits them yet. Until something does, records fall back to the MIP-004 result hash and the Masumi blockchain identifier.
+- **Inbound events.** The minter listens for `verification.completed` (QA agent) and `payment.collected` (Masumi collection). The QA side is wired: the booking engine emits `verification.completed` after every QA run (`src/engine/bookings.ts`, using the verifier in `src/verify`). Nothing emits `payment.collected` yet; until something does, the payment side falls back to the MIP-004 result hash and the Masumi blockchain identifier.
 - **Wallet binding** works from scripts and the registry API only. A worker-facing flow, where the worker signs a CIP-8 message to prove they own the address, is still to come.
 - The live Mesh path is tested offline: real transactions are built and signed against a fake provider. It has not yet been run against Preprod in CI.
