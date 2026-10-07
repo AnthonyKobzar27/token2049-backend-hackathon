@@ -6,3 +6,5 @@ HAAS_TOKEN = os.environ.get("HAAS_TOKEN", "")  # optional, mint one via POST /ap
 RECIPIENT = os.environ.get("IMESSAGE_RECIPIENT", "")
 CHAT_DB = os.path.expanduser("~/Library/Messages/chat.db")
 POLL_SECONDS = 2.0
+# Also forward per-step progress chatter (searching, scoring, per-source timing).
+VERBOSE = os.environ.get("IMESSAGE_VERBOSE", "").lower() in ("1", "true", "yes")

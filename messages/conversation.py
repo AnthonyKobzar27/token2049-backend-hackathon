@@ -101,8 +101,8 @@ class Conversation:
         if job:
             self._haas.send_job_message(job["id"], text)
             return "Got it — refining the search with that."
-        job = self._haas.create_job(text)
-        return f"🔎 On it: {job['brief']['task']}\nI'll text you a shortlist."
+        self._haas.create_job(text)
+        return "Got it — searching now. I'll text you a shortlist."
 
     def _awaiting_input(self) -> dict | None:
         return next((j for j in self._haas.jobs() if j["status"] == "awaiting_input"), None)

@@ -5,7 +5,7 @@ import sys
 
 from bridge import Bridge
 from channels import ConsoleChannel, IMessageChannel
-from config import POLL_SECONDS
+from config import POLL_SECONDS, VERBOSE
 from conversation import Conversation
 from events import EventStream
 from haas import HaasClient
@@ -18,7 +18,7 @@ def main() -> None:
     bridge = Bridge(
         stream=EventStream(),
         channel=channel,
-        notifier=Notifier(),
+        notifier=Notifier(verbose=VERBOSE or console),
         convo=Conversation(HaasClient()),
         poll_seconds=0.3 if console else POLL_SECONDS,
     )
