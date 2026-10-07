@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>HaaS: Agents think. We give them hands. (Copy)</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#FDE8E9; --bg2:#F4E3EC; --bg3:#EEF0F6;
+  --ink:#1F2232; --muted:#596475; --petal:#E3BAC6; --lilac:#BC9EC1;
+  --card:rgba(255,255,255,.62); --card-line:rgba(255,255,255,.9);
+  --card-shadow:0 14px 40px rgba(31,34,50,.10);
+  --chip:linear-gradient(135deg,#FDE8E9 0%,#E3BAC6 100%); --chip-ink:#1F2232;
+  --btn-bg:linear-gradient(180deg,#30355A 0%,#1F2232 100%); --btn-ink:#FDE8E9;
+  --btn2-bg:linear-gradient(135deg,#FFFFFF 0%,#D9DEE9 30%,#F4F6FA 52%,#C3CADA 78%,#F8F9FC 100%); --btn2-ink:#1F2232;
+  --glint:#7D879B; --head1:#1F2232; --head2:#596475;
+  --nav:rgba(255,255,255,.62);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#1F2232; --bg2:#252942; --bg3:#2B3049;
+    --ink:#FDE8E9; --muted:#BFC6D6;
+    --card:rgba(255,255,255,.07); --card-line:rgba(255,255,255,.16);
+    --card-shadow:0 14px 40px rgba(0,0,0,.35);
+    --chip:linear-gradient(135deg,#E3BAC6 0%,#BC9EC1 100%);
+    --btn-bg:linear-gradient(135deg,#FFFFFF 0%,#FDE8E9 45%,#E3BAC6 100%); --btn-ink:#1F2232;
+    --btn2-bg:linear-gradient(180deg,rgba(255,255,255,.18),rgba(255,255,255,.06)); --btn2-ink:#FDE8E9;
+    --glint:#FFFFFF; --head1:#FDE8E9; --head2:#BC9EC1;
+    --nav:rgba(31,34,50,.62);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1F2232; --bg2:#252942; --bg3:#2B3049;
+  --ink:#FDE8E9; --muted:#BFC6D6;
+  --card:rgba(255,255,255,.07); --card-line:rgba(255,255,255,.16);
+  --card-shadow:0 14px 40px rgba(0,0,0,.35);
+  --chip:linear-gradient(135deg,#E3BAC6 0%,#BC9EC1 100%);
+  --btn-bg:linear-gradient(135deg,#FFFFFF 0%,#FDE8E9 45%,#E3BAC6 100%); --btn-ink:#1F2232;
+  --btn2-bg:linear-gradient(180deg,rgba(255,255,255,.18),rgba(255,255,255,.06)); --btn2-ink:#FDE8E9;
+  --glint:#FFFFFF; --head1:#FDE8E9; --head2:#BC9EC1;
+  --nav:rgba(31,34,50,.62);
+}
+html{scroll-behavior:smooth;scroll-padding-top:calc(env(safe-area-inset-top,0px) + 80px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);background-image:linear-gradient(160deg,var(--bg) 0%,var(--bg2) 50%,var(--bg3) 100%);background-attachment:fixed;color:var(--ink);font-family:'Nunito',system-ui,sans-serif;line-height:1.55;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+#scene{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;opacity:0;transition:opacity .9s ease}
+#scene.on{opacity:1}
+.no3d #scene{display:none}
+.progress{position:fixed;left:0;top:0;height:3px;width:0;background:linear-gradient(90deg,var(--lilac),var(--petal),#fff);z-index:40}
+
+.nav{position:fixed;left:50%;transform:translateX(-50%);top:calc(12px + env(safe-area-inset-top,0px));width:min(1100px,calc(100% - 24px));z-index:30;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px 8px 18px;border-radius:999px;background:var(--nav);-webkit-backdrop-filter:blur(14px) saturate(150%);backdrop-filter:blur(14px) saturate(150%);border:1px solid var(--card-line);box-shadow:var(--card-shadow),inset 0 1px 0 rgba(255,255,255,.6)}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);font:600 22px 'Fredoka',sans-serif}
+.nav nav{display:flex;gap:6px}
+.nav nav a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:999px;color:var(--ink);text-decoration:none;font-weight:700;font-size:15px}
+.nav nav a:hover{background:var(--card)}
+@media (max-width:760px){.nav nav{display:none}}
+
+.btn{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:54px;padding:0 30px;border-radius:999px;border:0;font:700 17px 'Nunito',sans-serif;text-decoration:none;cursor:pointer;background:var(--btn-bg);color:var(--btn-ink);box-shadow:0 10px 24px rgba(31,34,50,.28),inset 0 1px 0 rgba(255,255,255,.3);transition:transform .15s ease,box-shadow .15s ease}
+.btn::after{content:"";position:absolute;top:0;left:-60%;width:40%;height:100%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.6),transparent);transform:skewX(-20deg);animation:sheen 3.8s ease-in-out infinite;pointer-events:none}
+.btn:hover{transform:translateY(-2px) scale(1.02)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible,.nav a:focus-visible{outline:3px solid var(--lilac);outline-offset:3px}
+.btn-2{background:var(--btn2-bg);color:var(--btn2-ink);box-shadow:0 8px 20px rgba(31,34,50,.14),inset 0 1px 0 rgba(255,255,255,.8);border:1px solid var(--card-line)}
+.btn-sm{min-height:44px;padding:0 20px;font-size:15px}
+@keyframes sheen{0%,55%{left:-60%}100%{left:140%}}
+
+.sec{position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;padding:110px 24px 80px}
+.wrap{width:min(1100px,100%);margin:0 auto;display:flex}
+.left .panel{margin-right:auto}
+.right .panel{margin-left:auto}
+.panel{max-width:540px}
+.chip{display:inline-flex;align-items:center;min-height:36px;padding:0 16px;border-radius:999px;background:var(--chip);color:var(--chip-ink);font-weight:700;font-size:14px;box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 4px 12px rgba(31,34,50,.10);transition:transform .2s ease}
+.chip:hover{transform:rotate(-3deg) scale(1.06)}
+h1,h2{font-family:'Fredoka',sans-serif;font-weight:600;letter-spacing:-.01em;margin:14px 0 14px;color:var(--ink)}
+h1{font-size:clamp(42px,6.4vw,78px);line-height:1.03}
+h2{font-size:clamp(30px,4.2vw,48px);line-height:1.1}
+.shine{display:block;color:var(--head2);background:linear-gradient(100deg,var(--head1) 0%,var(--head2) 34%,var(--glint) 48%,var(--head2) 62%,var(--head1) 100%);background-size:260% 100%;-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;animation:shimmer 5.5s ease-in-out infinite}
+@keyframes shimmer{0%,100%{background-position:100% 0}50%{background-position:0 0}}
+.lead{font-size:clamp(17px,1.6vw,20px);color:var(--muted);margin:0 0 26px;max-width:480px}
+.row{display:flex;flex-wrap:wrap;gap:12px}
+.card{background:var(--card);-webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%);border:1px solid var(--card-line);border-radius:28px;box-shadow:var(--card-shadow),inset 0 1px 0 rgba(255,255,255,.55);padding:26px}
+.card p{margin:0;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+.steps{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:22px}
+@media (max-width:760px){.steps{grid-template-columns:1fr}}
+.step{padding:20px}
+.step h3{font:600 20px 'Fredoka',sans-serif;margin:12px 0 6px;color:var(--ink)}
+.step p{font-size:15px}
+.num{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;font:600 18px 'Fredoka',sans-serif;color:#1F2232;background:radial-gradient(circle at 30% 26%,#fff 0 12%,rgba(255,255,255,0) 42%),var(--chip);box-shadow:inset 0 -5px 9px rgba(188,158,193,.55),0 5px 12px rgba(31,34,50,.14)}
+.ticks{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:12px}
+.ticks li{display:flex;align-items:center;gap:12px;font-weight:600;color:var(--ink)}
+.ticks li::before{content:"\2713";flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:700;color:#1F2232;background:radial-gradient(circle at 30% 26%,#fff 0 12%,rgba(255,255,255,0) 42%),var(--chip);box-shadow:inset 0 -3px 6px rgba(188,158,193,.55)}
+.card h3.t{font:600 22px 'Fredoka',sans-serif;margin:0 0 4px;color:var(--ink)}
+.try{align-items:flex-end}
+.try .panel{margin:0 auto;text-align:center;max-width:640px}
+.try .lead{margin-left:auto;margin-right:auto}
+.try .row{justify-content:center}
+.note{margin-top:18px;font-size:14px;color:var(--muted)}
+.note code{font-family:'DM Mono',monospace;background:var(--card);padding:2px 8px;border-radius:8px}
+.foot{margin-top:46px;font-size:13px;color:var(--muted)}
+.hint{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;font-weight:700;font-size:13px;color:var(--muted);transition:opacity .3s}
+.hint i{width:14px;height:14px;border-radius:50%;background:radial-gradient(circle at 30% 28%,#fff 0 20%,var(--petal) 70%);box-shadow:inset 0 -2px 4px rgba(89,100,117,.3);animation:bob 1.6s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(-4px)}50%{transform:translateY(6px)}}
+.fb{display:none}
+.no3d .fb{display:block;position:absolute;right:6%;top:50%;transform:translateY(-50%);width:min(34vw,340px);z-index:1}
+.no3d .fb svg{width:100%;height:auto;transform-origin:50% 88%;animation:wave 1.1s ease-in-out infinite}
+@keyframes wave{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(14deg)}}
+@media (max-width:760px){
+  .sec{align-items:flex-end;padding-top:90px}
+  .panel{max-width:100%}
+  .no3d .fb{right:50%;top:26%;transform:translate(50%,-50%);width:46vw}
+}
+.reveal{opacity:0;transform:translateY(26px) scale(.98);transition:opacity .8s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  .reveal{opacity:1;transform:none;transition:none}
+  .btn::after,.shine,.hint i,.no3d .fb svg{animation:none}
+}
+</style>
+<noscript><style>.reveal{opacity:1;transform:none}</style></noscript>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<canvas id="scene" aria-hidden="true"></canvas>
+
+<header class="nav">
+  <a class="logo" href="#hero" aria-label="HaaS home">
+    <svg width="34" height="34" viewBox="0 0 96 96" aria-hidden="true"><rect x="20" y="28" width="12" height="36" rx="6" fill="#FFB98F"/><rect x="34" y="14" width="12" height="46" rx="6" fill="#FFB98F"/><rect x="48" y="12" width="12" height="48" rx="6" fill="#FFB98F"/><rect x="62" y="24" width="12" height="38" rx="6" fill="#FFB98F"/><rect x="6" y="46" width="12" height="30" rx="6" transform="rotate(-28 12 61)" fill="#FFB98F"/><rect x="18" y="40" width="60" height="46" rx="23" fill="#FFC9A8"/><circle cx="38" cy="62" r="3.2" fill="#1F2232"/><circle cx="58" cy="62" r="3.2" fill="#1F2232"/><path d="M41 70q7 7 14 0" fill="none" stroke="#1F2232" stroke-width="2.6" stroke-linecap="round"/><circle cx="31" cy="69" r="4" fill="#FF9EAE" opacity=".7"/><circle cx="65" cy="69" r="4" fill="#FF9EAE" opacity=".7"/></svg>
+    <span>HaaS</span>
+  </a>
+  <nav aria-label="Sections">
+    <a href="#how">How it works</a>
+    <a href="#router">Router</a>
+    <a href="#try">Try it</a>
+  </nav>
+  <a class="btn btn-sm" href="#try">Try the agent</a>
+</header>
+
+<main>
+  <section class="sec left" id="hero">
+    <div class="wrap">
+      <div class="panel reveal">
+        <span class="chip">Human-as-a-Service</span>
+        <h1>Agents think.<span class="shine">We give them hands.</span></h1>
+        <p class="lead">When an AI agent hits something only a person can do, it texts us. We find a verified human, hold the payment in escrow, check the work, and send the result back.</p>
+        <div class="row">
+          <a class="btn" href="#try">Try the agent</a>
+          <a class="btn btn-2" href="#how">See how it works</a>
+        </div>
+      </div>
+    </div>
+    <div class="fb" aria-hidden="true">
+      <svg viewBox="0 0 96 96"><rect x="20" y="28" width="12" height="36" rx="6" fill="#FFB98F"/><rect x="34" y="14" width="12" height="46" rx="6" fill="#FFB98F"/><rect x="48" y="12" width="12" height="48" rx="6" fill="#FFB98F"/><rect x="62" y="24" width="12" height="38" rx="6" fill="#FFB98F"/><rect x="6" y="46" width="12" height="30" rx="6" transform="rotate(-28 12 61)" fill="#FFB98F"/><rect x="18" y="40" width="60" height="46" rx="23" fill="#FFC9A8"/><circle cx="38" cy="62" r="3.2" fill="#1F2232"/><circle cx="58" cy="62" r="3.2" fill="#1F2232"/><path d="M41 70q7 7 14 0" fill="none" stroke="#1F2232" stroke-width="2.6" stroke-linecap="round"/><circle cx="31" cy="69" r="4" fill="#FF9EAE" opacity=".7"/><circle cx="65" cy="69" r="4" fill="#FF9EAE" opacity=".7"/></svg>
+    </div>
+    <div class="hint" id="hint"><i></i>Scroll</div>
+  </section>
+
+  <section class="sec right" id="wall">
+    <div class="wrap">
+      <div class="panel card reveal">
+        <span class="chip">The wall</span>
+        <h2>The exit from the agent world into the human world</h2>
+        <p>Every autonomous agent eventually hits a wall only a human can clear. A phone call. A queue. A look at the real thing.</p>
+        <div class="chips">
+          <span class="chip">Phone calls</span><span class="chip">Queues</span><span class="chip">In-person checks</span><span class="chip">Pickups</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec left" id="how">
+    <div class="wrap">
+      <div class="panel reveal">
+        <span class="chip">How it works</span>
+        <h2>Text it. Approve it. Done.</h2>
+        <div class="steps">
+          <div class="card step"><div class="num">1</div><h3>Text the agent</h3><p>Say the errand in plain words. It tries to handle it first.</p></div>
+          <div class="card step"><div class="num">2</div><h3>Approve the hire</h3><p>If a person is needed, you see the best match and say yes.</p></div>
+          <div class="card step"><div class="num">3</div><h3>Escrow holds the pay</h3><p>Payment locks on chain and moves only if the work checks out.</p></div>
+          <div class="card step"><div class="num">4</div><h3>Get the result</h3><p>A verified human delivers. The answer lands in the same chat.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec right" id="router">
+    <div class="wrap">
+      <div class="panel reveal">
+        <span class="chip">Open router</span>
+        <h2>One request, the best person</h2>
+        <p class="lead">We search every freelancer source at once, instead of locking you into one platform.</p>
+        <div class="card">
+          <h3 class="t">Built to be trusted</h3>
+          <ul class="ticks">
+            <li>Escrow with automatic refund</li>
+            <li>Verified worker identity</li>
+            <li>Pay released only after the result is checked</li>
+            <li>Settles on Cardano or Solana</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec try" id="try">
+    <div class="wrap">
+      <div class="panel reveal">
+        <span class="chip">Ready?</span>
+        <h2>Meet the hand</h2>
+        <p class="lead">Ask for something a computer cannot do. Try it on Telegram or iMessage.</p>
+        <div class="row">
+          <a class="btn" data-tg href="#try">Try the agent on Telegram</a>
+          <a class="btn btn-2" data-im href="#try">Text us on iMessage</a>
+        </div>
+        <p class="note">Want to earn from errands? Open the bot, send <code>/start</code>, then <code>/worker</code>.</p>
+        <p class="foot">HaaS, Human-as-a-Service. Built for the agent economy.</p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  // Set these two before sharing the page.
+  var TELEGRAM_URL = 'https://t.me/YOUR_BOT_USERNAME';
+  var IMESSAGE_URL = 'sms:+10000000000';
+
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  document.querySelectorAll('[data-tg]').forEach(function (a) {
+    a.href = TELEGRAM_URL; a.target = '_blank'; a.rel = 'noopener noreferrer';
+  });
+  document.querySelectorAll('[data-im]').forEach(function (a) { a.href = IMESSAGE_URL; });
+
+  // Reveal on scroll
+  var reveals = document.querySelectorAll('.reveal');
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.18 });
+    reveals.forEach(function (el) { io.observe(el); });
+  } else {
+    reveals.forEach(function (el) { el.classList.add('in'); });
+  }
+
+  // Bubble pop on buttons
+  function pop(x, y) {
+    if (reduce) return;
+    var cols = ['#FDE8E9', '#E3BAC6', '#BC9EC1', '#FFFFFF'];
+    for (var i = 0; i < 12; i++) {
+      var s = document.createElement('span');
+      var size = 8 + Math.random() * 16;
+      s.style.cssText = 'position:fixed;left:' + x + 'px;top:' + y + 'px;width:' + size + 'px;height:' + size +
+        'px;border-radius:50%;pointer-events:none;z-index:60;background:radial-gradient(circle at 30% 28%,#fff 0 18%,' +
+        cols[i % 4] + ' 62%);box-shadow:inset 0 -2px 4px rgba(89,100,117,.28)';
+      document.body.appendChild(s);
+      var a = Math.random() * Math.PI * 2, d = 40 + Math.random() * 90;
+      var dx = Math.cos(a) * d, dy = Math.sin(a) * d - 30;
+      var anim = s.animate([
+        { transform: 'translate(-50%,-50%) scale(.6)', opacity: 1 },
+        { transform: 'translate(calc(-50% + ' + dx + 'px),calc(-50% + ' + dy + 'px)) scale(1.1)', opacity: 0 }
+      ], { duration: 700 + Math.random() * 400, easing: 'cubic-bezier(.2,.8,.2,1)' });
+      anim.onfinish = (function (el) { return function () { el.remove(); }; })(s);
+    }
+  }
+  document.querySelectorAll('.btn').forEach(function (b) {
+    b.addEventListener('click', function (e) { pop(e.clientX, e.clientY); });
+  });
+
+  // Progress bar and scroll hint
+  var bar = document.getElementById('progress');
+  var hint = document.getElementById('hint');
+  function onScroll() {
+    var max = document.documentElement.scrollHeight - window.innerHeight;
+    bar.style.width = (max > 0 ? (window.scrollY / max) * 100 : 0) + '%';
+    hint.style.opacity = window.scrollY > 40 ? '0' : '1';
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  // 3D scene
+  var canvas = document.getElementById('scene');
+  var ok = false;
+  if (typeof THREE !== 'undefined') {
+    try { init3D(); ok = true; } catch (err) { if (window.console) console.error(err); }
+  }
+  if (!ok) document.documentElement.classList.add('no3d');
+
+  function init3D() {
+    var renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+    camera.position.set(0, 0, 9);
+
+    function col(h) { return new THREE.Color(h).convertSRGBToLinear(); }
+
+    // Procedural studio environment so the surfaces have something silvery to reflect
+    function makeEnv() {
+      var c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+      var g = c.getContext('2d');
+      var lg = g.createLinearGradient(0, 0, 0, 512);
+      lg.addColorStop(0, '#FFFFFF'); lg.addColorStop(0.45, '#FDE8E9');
+      lg.addColorStop(0.55, '#596475'); lg.addColorStop(0.7, '#BC9EC1'); lg.addColorStop(1, '#1F2232');
+      g.fillStyle = lg; g.fillRect(0, 0, 1024, 512);
+      function blob(x, y, r, color, a) {
+        var rg = g.createRadialGradient(x, y, 0, x, y, r);
+        rg.addColorStop(0, color); rg.addColorStop(1, 'rgba(255,255,255,0)');
+        g.globalAlpha = a; g.fillStyle = rg; g.fillRect(x - r, y - r, r * 2, r * 2); g.globalAlpha = 1;
+      }
+      blob(220, 130, 170, '#FFFFFF', 1); blob(760, 110, 200, '#FFFFFF', 0.95);
+      blob(520, 300, 150, '#E3BAC6', 0.8); blob(900, 330, 120, '#BC9EC1', 0.8); blob(80, 300, 110, '#FFFFFF', 0.7);
+      var t = new THREE.CanvasTexture(c);
+      t.mapping = THREE.EquirectangularReflectionMapping;
+      t.encoding = THREE.sRGBEncoding;
+      return t;
+    }
+    var envTex = makeEnv();
+    var pm = new THREE.PMREMGenerator(renderer);
+    var envRT = pm.fromEquirectangular(envTex);
+    scene.environment = envRT.texture;
+    envTex.dispose(); pm.dispose();
+
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xBC9EC1, 0.5));
+    var dl = new THREE.DirectionalLight(0xffffff, 0.9);
+    dl.position.set(-3, 5, 6); scene.add(dl);
+
+    // Hand mascot
+    var skin = new THREE.MeshPhysicalMaterial({ color: col('#FFC9A8'), roughness: 0.38, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.18, envMapIntensity: 0.9 });
+    var fing = new THREE.MeshPhysicalMaterial({ color: col('#FFB98F'), roughness: 0.38, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.18, envMapIntensity: 0.9 });
+    var dark = new THREE.MeshStandardMaterial({ color: col('#1F2232'), roughness: 0.3, metalness: 0 });
+    var cheekM = new THREE.MeshStandardMaterial({ color: col('#FF9EAE'), roughness: 0.6, transparent: true, opacity: 0.8 });
+
+    var root = new THREE.Group(); scene.add(root);
+    var wave = new THREE.Group(); wave.position.set(0, -1.0, 0); root.add(wave);
+    var hand = new THREE.Group(); hand.position.set(0, 1.0, 0); wave.add(hand);
+
+    var palm = new THREE.Mesh(new THREE.SphereGeometry(1, 48, 32), skin);
+    palm.scale.set(1.28, 1.0, 0.78); hand.add(palm);
+
+    function mkFinger(x, len, r, rz) {
+      var g = new THREE.Group();
+      var cyl = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 28), fing); cyl.position.y = len / 2;
+      var cap = new THREE.Mesh(new THREE.SphereGeometry(r, 28, 20), fing); cap.position.y = len;
+      var base = new THREE.Mesh(new THREE.SphereGeometry(r, 28, 20), fing);
+      g.add(cyl); g.add(cap); g.add(base);
+      g.position.set(x, 0.35, -0.05); g.rotation.z = rz; hand.add(g); return g;
+    }
+    mkFinger(-0.8, 0.95, 0.2, 0.1);
+    mkFinger(-0.27, 1.3, 0.21, 0.03);
+    mkFinger(0.27, 1.38, 0.21, -0.03);
+    mkFinger(0.8, 1.02, 0.2, -0.1);
+    var thumb = mkFinger(-1.05, 0.9, 0.21, 0.5); thumb.position.set(-1.05, -0.15, -0.05);
+
+    var eyeG = new THREE.SphereGeometry(0.1, 24, 16);
+    var eyeL = new THREE.Mesh(eyeG, dark), eyeR = new THREE.Mesh(eyeG, dark);
+    eyeL.position.set(-0.4, 0.05, 0.72); eyeR.position.set(0.4, 0.05, 0.72);
+    eyeL.scale.set(1, 1.2, 0.6); eyeR.scale.set(1, 1.2, 0.6);
+    hand.add(eyeL); hand.add(eyeR);
+
+    var smile = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.038, 12, 40, Math.PI), dark);
+    smile.rotation.z = Math.PI; smile.position.set(0, -0.02, 0.75); hand.add(smile);
+    var capG = new THREE.SphereGeometry(0.038, 12, 10);
+    var capL = new THREE.Mesh(capG, dark), capR = new THREE.Mesh(capG, dark);
+    capL.position.set(-0.27, -0.02, 0.75); capR.position.set(0.27, -0.02, 0.75);
+    hand.add(capL); hand.add(capR);
+
+    var cheekG = new THREE.SphereGeometry(0.17, 20, 14);
+    var chL = new THREE.Mesh(cheekG, cheekM), chR = new THREE.Mesh(cheekG, cheekM);
+    chL.scale.set(1.1, 0.75, 0.35); chR.scale.set(1.1, 0.75, 0.35);
+    chL.position.set(-0.78, -0.22, 0.57); chR.position.set(0.78, -0.22, 0.57);
+    hand.add(chL); hand.add(chR);
+
+    // Orbiting silver spheres (the "sources", shown in the router section)
+    var orbitG = new THREE.Group(); root.add(orbitG);
+    var orbCols = ['#FDE8E9', '#E3BAC6', '#BC9EC1', '#596475'];
+    var orbs = orbCols.map(function (c) {
+      var m = new THREE.Mesh(new THREE.SphereGeometry(0.3, 32, 24),
+        new THREE.MeshPhysicalMaterial({ color: col(c), roughness: 0.12, metalness: 0.95, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.5 }));
+      orbitG.add(m); return m;
+    });
+
+    // Bubbles
+    var bubbleGeo = new THREE.SphereGeometry(1, 32, 24);
+    var bcols = ['#FDE8E9', '#E3BAC6', '#BC9EC1', '#E8EBF2'];
+    var bmats = bcols.map(function (c) {
+      return new THREE.MeshPhysicalMaterial({ color: col(c), roughness: 0.06, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.04, transparent: true, opacity: 0.5, envMapIntensity: 1.6, depthWrite: false });
+    });
+    var bubbles = [];
+    for (var i = 0; i < 28; i++) {
+      var m = new THREE.Mesh(bubbleGeo, bmats[i % 4]);
+      var s = 0.08 + Math.random() * 0.32;
+      m.scale.setScalar(s);
+      m.userData = { bx: Math.random() * 2 - 1, by: Math.random(), z: -4 + Math.random() * 5.5, sp: 0.05 + Math.random() * 0.12, ph: Math.random() * 6.28 };
+      scene.add(m); bubbles.push(m);
+    }
+
+    // Scroll story: one stage per section
+    var stages = [
+      { fx: 0.5, fy: 0.0, s: 1.15, ry: -0.35, rx: 0.05, wave: 1.0, orb: 0 },
+      { fx: -0.5, fy: 0.04, s: 0.95, ry: 0.55, rx: -0.08, wave: 0.0, orb: 0 },
+      { fx: 0.5, fy: -0.05, s: 0.85, ry: -0.7, rx: 0.12, wave: 0.35, orb: 0 },
+      { fx: -0.5, fy: 0.0, s: 0.8, ry: 0.4, rx: 0.0, wave: 0.2, orb: 1 },
+      { fx: 0.0, fy: 0.3, s: 1.05, ry: 0.0, rx: 0.0, wave: 1.0, orb: 0 }
+    ];
+    var keys = ['fx', 'fy', 's', 'ry', 'rx', 'wave', 'orb'];
+    var cur = {}; keys.forEach(function (k) { cur[k] = stages[0][k]; });
+    var secs = Array.prototype.slice.call(document.querySelectorAll('.sec'));
+    var centers = [];
+    var aspect = 1, halfH = 1, halfW = 1;
+
+    function computeCenters() {
+      centers = secs.map(function (el) {
+        var rect = el.getBoundingClientRect();
+        return Math.max(0, rect.top + window.scrollY + rect.height / 2 - window.innerHeight / 2);
+      });
+      for (var j = 1; j < centers.length; j++) if (centers[j] <= centers[j - 1]) centers[j] = centers[j - 1] + 1;
+    }
+    function resize() {
+      var w = window.innerWidth, h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+      aspect = w / h;
+      halfH = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
+      halfW = halfH * aspect;
+      computeCenters();
+    }
+    window.addEventListener('resize', resize);
+    window.addEventListener('load', computeCenters);
+    resize();
+
+    function targetStage() {
+      var y = window.scrollY || 0, n = centers.length, i = 0;
+      while (i < n - 1 && y >= centers[i + 1]) i++;
+      if (i >= n - 1) return stages[n - 1];
+      var a = centers[i], b = centers[i + 1];
+      var u = Math.max(0, Math.min(1, (y - a) / (b - a)));
+      u = u * u * (3 - 2 * u);
+      var out = {};
+      keys.forEach(function (k) { out[k] = stages[i][k] + (stages[i + 1][k] - stages[i][k]) * u; });
+      return out;
+    }
+
+    var px = 0, py = 0, tpx = 0, tpy = 0;
+    window.addEventListener('pointermove', function (e) {
+      tpx = (e.clientX / window.innerWidth) * 2 - 1;
+      tpy = (e.clientY / window.innerHeight) * 2 - 1;
+    }, { passive: true });
+
+    var t = 0, last = performance.now(), first = true;
+    function frame(now) {
+      var dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
+      var tar = targetStage();
+      var k = reduce ? 1 : 1 - Math.exp(-dt * 5);
+      keys.forEach(function (key) { cur[key] += (tar[key] - cur[key]) * k; });
+      px += (tpx - px) * 0.06; py += (tpy - py) * 0.06;
+
+      var portrait = aspect < 0.9;
+      var kScale = portrait ? Math.min(0.6, halfW / 2.7) : Math.min(1, halfW / 4.8);
+      var x = portrait ? 0 : cur.fx * halfW * 0.62;
+      var y = portrait ? halfH * 0.42 + cur.fy * halfH * 0.2 : cur.fy * halfH;
+      var bob = reduce ? 0 : Math.sin(t * 1.6) * 0.06;
+      root.position.set(x, y + bob, 0);
+      root.scale.setScalar(cur.s * kScale * (1 + (reduce ? 0 : Math.sin(t * 2) * 0.008)));
+      root.rotation.set(cur.rx - py * 0.12, cur.ry + px * 0.3, 0);
+
+      var amp = reduce ? 0.1 : 0.38;
+      var spd = reduce ? 2 : 7.5;
+      wave.rotation.z = Math.sin(t * spd) * amp * cur.wave;
+
+      var bt = t % 4.2;
+      var bl = bt < 0.14 ? Math.sin((bt / 0.14) * Math.PI) : 0;
+      var ey = 1.2 * (1 - 0.9 * bl);
+      eyeL.scale.y = ey; eyeR.scale.y = ey;
+
+      orbitG.scale.setScalar(Math.max(0.001, cur.orb));
+      for (var q = 0; q < orbs.length; q++) {
+        var a = (reduce ? 0 : t * 0.8) + (q * Math.PI) / 2;
+        orbs[q].position.set(Math.cos(a) * 2.6, Math.sin(a) * 0.5 + 0.2, Math.sin(a) * 2.0);
+      }
+
+      var sy = window.scrollY || 0;
+      for (var b = 0; b < bubbles.length; b++) {
+        var bm = bubbles[b], d = bm.userData;
+        var dist = camera.position.z - d.z;
+        var hh = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * dist;
+        var ww = hh * aspect;
+        var v = d.by + (reduce ? 0 : t * d.sp * 0.05) + sy * 0.00012;
+        v = ((v % 1) + 1) % 1;
+        bm.position.set(d.bx * ww * 1.05 + (reduce ? 0 : Math.sin(t * 0.5 + d.ph) * 0.15), (v * 2 - 1) * hh * 1.15, d.z);
+      }
+
+      renderer.render(scene, camera);
+      if (first) { canvas.classList.add('on'); first = false; }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  }
+})();
+</script>
+</body>
+</html>
