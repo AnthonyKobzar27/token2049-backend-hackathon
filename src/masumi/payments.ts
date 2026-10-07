@@ -229,7 +229,10 @@ export function createPaymentClient(config: Config, opts: { fetch?: Fetch; now?:
         config.MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX !== undefined
           ? { paymentSourceType: 'Web3CardanoV2', supportedPaymentSourceIndex: config.MASUMI_SUPPORTED_PAYMENT_SOURCE_INDEX }
           : {};
-      const hints = (await lookupSource()) ?? fallback;
+      // The registry entry wins where it answers; the configured index fills what it leaves out (an entry whose
+      // sources did not match used to drop the index, and V2 payments were then rejected).
+      const looked = (await lookupSource()) ?? {};
+      const hints: Hints = { ...fallback, ...Object.fromEntries(Object.entries(looked).filter(([, v]) => v !== undefined)) };
       const dynamic = (hints.pricingType ?? config.MASUMI_PRICING_TYPE) === 'Dynamic';
       if (dynamic && !amounts?.length) throw new MasumiPaymentError('Dynamic pricing needs an amount for every payment request');
       const requested = dynamic ? amounts!.map((a) => ({ amount: a.amount, unit: normalizeUnit(a.unit) })) : undefined;

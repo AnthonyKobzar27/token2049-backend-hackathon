@@ -22,6 +22,46 @@ Built for the TOKEN2049 Origins hackathon.
 
 **One payment stays on Cardano.** When another Masumi agent hires HAAS, it pays a small job fee in USDM through Masumi's own escrow on Cardano. That is how Masumi agents pay each other, and the Cardano track asks for that transaction as proof. The human's budget and the human's pay settle on Solana.
 
+## Live on testnets
+
+### Solana (Devnet): the HAAS escrow program
+
+| | |
+|---|---|
+| Program ID | `9hzyeY6LPaQzJWszBjtYU17sHN2XmQD6FmyJFCNrs727` |
+| Cluster | Devnet |
+| Program | [Solana Explorer](https://explorer.solana.com/address/9hzyeY6LPaQzJWszBjtYU17sHN2XmQD6FmyJFCNrs727?cluster=devnet) |
+| Deploy | [5cBcCicy…NKTZqBz5G](https://explorer.solana.com/tx/5cBcCicy2Wk2eUp3pENniXCvqXxWMCjGo7Pe77oyWyjc8SgfGDBtwoiufzBVCwUUKkBwVVfBNAJ8cvaNKTZqBz5G?cluster=devnet) |
+
+Example transactions from `pnpm spike:solana` (14/14 checks passed):
+
+| Step | Transaction |
+|---|---|
+| Lock 25.1 USDC for a booking | [5Nzzn…LotD](https://explorer.solana.com/tx/5NzznQe4KC1JV3ms4a1hkUSxnRrF3mPZLkppxsd1m7ykKXcY2GjczsNJD8eL2LUjmfZy11v5eZoeFSbWbNNTLotD?cluster=devnet) |
+| Release to the worker, bound to the result hash | [59Pvm…gzj3](https://explorer.solana.com/tx/59PvmfCqVqNXMC7MTABpFYTupmnrWWXemCeZHijnPXNZc2uMVk6e7Ko7o7SbAM3EfJcPLRScUSC1jLYzgyDrtZj3?cluster=devnet) |
+| Operator cancel, hirer refunded | [y82WM…7ci1](https://explorer.solana.com/tx/y82WMSPzdJM7qiKUpCBfs3f215ijMWTrciQdcU874eNVZEiAYzA66rfoCxgswVUPFvLJLhhgA6ErwcxmSjf7ci1?cluster=devnet) |
+| Deadline passes, anyone triggers the refund | [2R4ED…DZiR](https://explorer.solana.com/tx/2R4EDo3ggRAEd3BCbNpGhVd5yh5sJCCfdj8re9J7LdfMmEqZa9wH7vfLgxSZ69zMMm3yCSuUwk3hFFZkX5t2DEiR?cluster=devnet) |
+
+### Cardano (Preprod): x402 and Masumi
+
+| What | Proof |
+|---|---|
+| An agent pays HAAS per request with x402 (402 price, on-chain payment, service delivered) | [94f40a76…](https://preprod.cardanoscan.io/transaction/94f40a76c62341e1ea8ac99a9a5211832f0a30b77218da4c0824c9fd2155e1bd), [89d4df3a…](https://preprod.cardanoscan.io/transaction/89d4df3ad916ee458f56f36467ab37cb3465a684ed71fe436c29687cc154dceb) |
+| HAAS registered on the Masumi registry (Dynamic pricing, 1 USDM per job) | agent `67ab0c92…11dd2526…133000000`, mint [d68d3ae0…](https://preprod.cardanoscan.io/transaction/d68d3ae050d562859a6264a99c5a40d50ad656a7a4f883a4df37d20cbfc4be8e) |
+| A paid Sokosumi Task: escrow funded, result hash submitted, collected after unlock | Task `01a11581-3d00-726c-a9c2-d43598c77c4e` |
+
+### Try it end to end
+
+1. `pnpm install`, then put your keys in `~/.haas/.env` (see `.env.example`; every key is optional).
+2. `pnpm start`, and in another terminal `pnpm demo:agent` (a second agent HAAS can hire).
+3. x402 on Cardano: `pnpm spike:x402 cardano "Find an SAT math tutor who speaks English, 2 hours this Saturday, budget $80"`.
+4. Solana escrow on devnet: `SOLANA_RPC_URL=<devnet rpc> pnpm spike:solana`.
+5. Talk to the agent: `POST /api/converse {"text":"…"}` or Telegram.
+
+### Built during the hackathon
+
+All code in this repository was written during TOKEN2049 Origins (6–8 October 2026); the first commit is from 6 October. It uses existing open-source and hosted pieces, not written by us: Anchor and the Solana SDKs, the Masumi Payment Service and Sokosumi, the x402 libraries and the Cardano Foundation's hosted facilitator, Mesh, the open-source `fiverr-mcp-server` (MIT), and the public APIs of RentAHuman and Freelancer.com.
+
 ## How it works
 
 ```
@@ -153,11 +193,15 @@ Secrets and the database live in `~/.haas/`, outside the repository.
 
 Every step of the flow is built and covered by unit and end-to-end tests, with fakes standing in for outside services. Run by hand without keys: the MIP-003 API, routing with day, time and location, the signed check-in, the bounty board and rule-based QA.
 
-Not yet run against the live service:
+Run live (links in **Live on testnets** above):
 
-- **Solana escrow program.** It compiles and its IDL is checked, but it is not deployed yet, so `SOLANA_ESCROW_PROGRAM_ID` is a placeholder. See `programs/haas-escrow/README.md`.
-- **The paid Masumi job.** The payment service setup in `infra/masumi` has not been run. The live runbook is [docs/LIVE_CARDANO_PAYMENT.md](docs/LIVE_CARDANO_PAYMENT.md).
-- **Others.** Hiring a real Masumi AI agent, the Telegram bot on real phones (setup in [docs/MANUAL_TESTING.md](docs/MANUAL_TESTING.md) 2.2), the language-model paths, x402, Upwork, Prolific, Veridian, and reputation minting on Preprod.
+- **Solana escrow program** deployed on Devnet; lock, release, cancel and timeout refund pass on chain.
+- **x402 on Cardano Preprod:** an agent paid HAAS per request and received the shortlist.
+- **Masumi:** HAAS is registered on the Preprod registry; a paid Sokosumi Task funded its escrow and HAAS submitted the result hash.
+- **Agent to agent:** HAAS hires another MIP-003 agent for digital work (`pnpm demo:agent`).
+- **Conversation and routing:** multi-turn intake with Claude, platform choice by the kind of work, RentAHuman, Fiverr (MCP) and Freelancer.com searched live; Telegram bot running.
+
+Not yet run against the live service: Upwork, Prolific, Veridian, and reputation minting on Preprod.
 
 ## Honest limits
 
