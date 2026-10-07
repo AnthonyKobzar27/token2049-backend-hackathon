@@ -1,5 +1,6 @@
 import express from 'express';
 import { createLiaison } from './agent/liaison';
+import { mountDashboard } from './api/dashboard';
 import { createApprovalGate } from './approvals/gate';
 import { createPolicy } from './approvals/policy';
 import { createBountyModule } from './bounty';
@@ -28,6 +29,7 @@ import { createBrowserSources } from './sources/browser';
 import { createVeridian, mountVeridian } from './identity/veridian';
 import { combineSignals } from './identity/veridian/service';
 import { createFakeSource } from './sources/fake';
+import { createFiverrSource } from './sources/fiverr';
 import { createFreelancerSource } from './sources/freelancer';
 import { createProlificSource } from './sources/prolific';
 import { createRegistry } from './sources/registry';
@@ -38,9 +40,11 @@ const config = loadConfig();
 const store = createStore(config.DB_PATH);
 const bus = createEventBus();
 
+// Human workers: RentAHuman, Fiverr, Freelancer.com, PeoplePerHour and Guru (+ Upwork/Prolific with keys).
 const sources: FreelancerSource[] = [
-  createFreelancerSource(config),
   createRentAHumanSource(config),
+  createFiverrSource({ config, bus }),
+  createFreelancerSource(config),
   createUpworkSource(config),
   // Publishing a study spends money: it asks the approval gate, created further down.
   createProlificSource({ config, store, gate: () => gate }),
@@ -81,6 +85,7 @@ app.get('/health', (_req, res) => {
 bounty.mount(app);
 const masumi = mountMasumi(app, { jobs, store, bus, config });
 mountX402(app, { jobs, store, bus, config });
+const dashboard = mountDashboard(app, { jobs, bookings, gate, registry, store, bus, config });
 // Solana Pay transaction requests for program escrow deposits (the hirer's wallet signs the deposit).
 if (escrow.buildDepositTransaction) mountSolanaPay(app, { store, escrow, config });
 mountIdentity(app, identity);
@@ -136,6 +141,7 @@ async function shutdown() {
   bounty.stop();
   veridian?.stop();
   masumi.stop();
+  dashboard.stop();
   sokosumi?.stop();
   identity?.stop();
   await telegram.stop().catch(() => {});

@@ -13,7 +13,7 @@ export class HttpError extends Error {
 export type Query = Record<string, string | number | boolean | undefined | (string | number)[]>;
 
 export interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH';
   headers?: Record<string, string>;
   query?: Query;
   /** Sent as JSON. */
@@ -142,7 +142,7 @@ let languageNames: Map<string, string> | undefined;
 /** Language name in English (lower case) -> ISO 639-1. Undefined when the name is unknown. */
 export function languageCode(name: string): string | undefined {
   if (!languageNames) {
-    languageNames = new Map([['filipino', 'tl']]);
+    languageNames = new Map([['filipino', 'tl'], ['mandarin', 'zh'], ['cantonese', 'zh'], ['hokkien', 'zh'], ['farsi', 'fa'], ['tagalog', 'tl']]);
     const dn = new Intl.DisplayNames('en', { type: 'language' });
     for (let a = 97; a <= 122; a++) {
       for (let b = 97; b <= 122; b++) {
@@ -161,18 +161,47 @@ export function languageCode(name: string): string | undefined {
   return languageNames.get(key);
 }
 
+// Words that describe the request, not the skill: filler, scheduling, budget and quantity words.
+// Searching a platform for "hours" or "saturday" only narrows the results to nothing.
 const STOPWORDS = new Set(
-  'a an the for to of and or in on at with my our your need needs want make made create get find someone person help please new from by be is are as it its this that'.split(' '),
+  (
+    'a an the for to of and or in on at with my our your me i we us need needs want wants make made create get find hire book ' +
+    'someone somebody anyone person people freelancer expert help please new from by be is are as it its this that who can could would ' +
+    'like looking will just some any very good best quick quickly asap urgent urgently within before after until by into via ' +
+    'hour hours hr hrs minute minutes min mins day days week weeks weekend month months year years time times session sessions ' +
+    'today tonight tomorrow morning afternoon evening night noon next this coming am pm ' +
+    'monday tuesday wednesday thursday friday saturday sunday mon tue tues wed thu thur thurs fri sat sun ' +
+    'budget usd dollar dollars price cost cheap affordable under around about max maximum per total pay paying paid rate ' +
+    'one two three four five six seven eight nine ten speaks speaking speaker fluent native ' +
+    'english spanish mandarin chinese french german hindi tamil malay arabic japanese korean portuguese italian russian'
+  ).split(' '),
 );
+// "sat" is a weekday abbreviation above, but SAT is the exam: keep it when written in capitals.
+const KEEP_UPPER = new Set(['sat', 'act', 'gre', 'gmat', 'ielts', 'toefl', 'mcat', 'lsat', 'ap']);
 
-/** Up to `n` distinct content words from free text. */
+/** Up to `n` distinct skill words from free text (no filler, days, times, budgets or numbers). */
 export function keywords(text: string, n: number): string[] {
   const out: string[] = [];
-  for (const w of text.toLowerCase().match(/[a-z0-9+#.]{3,}/g) ?? []) {
-    if (!STOPWORDS.has(w) && !out.includes(w)) out.push(w);
+  for (const m of text.matchAll(/[A-Za-z][A-Za-z0-9+#.]*|[0-9]+[A-Za-z+#.]+[A-Za-z0-9+#.]*/g)) {
+    const raw = m[0].replace(/\.+$/, '');
+    const w = raw.toLowerCase();
+    if (w.length < 2 || (w.length < 3 && !KEEP_UPPER.has(w))) continue;
+    // Times, ordinals and quantities ("5pm", "3rd", "10k") are not skills.
+    if (/^\d+(am|pm|k|h|hr|hrs|min|mins|st|nd|rd|th|s)$/.test(w)) continue;
+    const keep = KEEP_UPPER.has(w) && raw === raw.toUpperCase();
+    if ((STOPWORDS.has(w) && !keep) || out.includes(w)) continue;
+    out.push(w);
     if (out.length >= n) break;
   }
   return out;
+}
+
+/** Search phrases from most to least specific, so a search that finds too little can widen: "sat math tutor", "sat math", "sat". */
+export function queryVariants(skills: string[], task: string): string[] {
+  const words = skills.length ? skills.flatMap((s) => s.trim().split(/\s+/)).filter(Boolean) : keywords(task, 3);
+  const base = skills.length ? skills.map((s) => s.trim()).filter(Boolean).slice(0, 3).join(' ') : words.join(' ');
+  const out = [base, words.slice(0, 2).join(' '), words[0] ?? ''].map((q) => q.trim()).filter(Boolean);
+  return [...new Set(out)];
 }
 
 export const round2 = (n: number): number => Math.round(n * 100) / 100;

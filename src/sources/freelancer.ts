@@ -1,6 +1,7 @@
 // Freelancer.com source. Search and profiles use the public production API (the user directory
-// answers without a token). Every write goes to the sandbox host only; this build never spends
-// real money on Freelancer.
+// answers without a token). Booking creates a "Hire Me" project for the chosen freelancer: on the
+// sandbox host by default (FREELANCER_SANDBOX_TOKEN), on the live site only with
+// FREELANCER_LIVE_BOOKING=true and FREELANCER_TOKEN (accepting a delivery there releases real money).
 
 import type { Config } from '../config';
 import type { FreelancerSource, SearchOptions } from '../domain/ports';
@@ -135,7 +136,11 @@ function topCategory(jobs: RawJob[]): string | undefined {
 
 export function createFreelancerSource(config: Config): FreelancerSource {
   const token = config.FREELANCER_TOKEN;
-  const sandboxToken = config.FREELANCER_SANDBOX_TOKEN;
+  // Writes go to the sandbox unless FREELANCER_LIVE_BOOKING is on and a live token is set.
+  const live = config.FREELANCER_LIVE_BOOKING && !!token;
+  const sandboxToken = live ? token : config.FREELANCER_SANDBOX_TOKEN;
+  const WRITE = live ? PROD : SANDBOX;
+  const WRITE_SITE = live ? PROD_SITE : SANDBOX_SITE;
 
   const prodHeaders = (): Record<string, string> => (token ? { 'freelancer-oauth-v1': token } : {});
 
@@ -145,7 +150,7 @@ export function createFreelancerSource(config: Config): FreelancerSource {
     opts: { method?: 'GET' | 'POST' | 'PUT'; query?: Query; json?: unknown; form?: Query } = {},
   ): Promise<T> {
     if (!sandboxToken) throw new Error('FREELANCER_SANDBOX_TOKEN is not set');
-    const res = await requestJson<Envelope<T>>(`${SANDBOX}${path}`, {
+    const res = await requestJson<Envelope<T>>(`${WRITE}${path}`, {
       ...opts,
       headers: { 'freelancer-oauth-v1': sandboxToken },
     });
@@ -227,7 +232,7 @@ export function createFreelancerSource(config: Config): FreelancerSource {
     if (!sandboxToken) return handoff(profile, 'No Freelancer sandbox credentials are configured, so nothing was booked automatically.');
     try {
       // Sandbox user ids differ from production; without the same id there is nobody to hire.
-      try {
+      if (!live) try {
         await sandbox(`/users/0.1/users/${encodeURIComponent(profile.platformId)}/`, { query: { compact: true } });
       } catch (err) {
         if (err instanceof HttpError && (err.status === 404 || err.status === 400)) {
@@ -264,7 +269,7 @@ export function createFreelancerSource(config: Config): FreelancerSource {
       return {
         kind: 'placed',
         platformRef: String(project.id),
-        url: `${SANDBOX_SITE}/projects/${project.seo_url ?? project.id}`,
+        url: `${WRITE_SITE}/projects/${project.seo_url ?? project.id}`,
       };
     } catch (err) {
       return handoff(profile, `The sandbox booking failed (${err instanceof Error ? err.message : String(err)}).`);

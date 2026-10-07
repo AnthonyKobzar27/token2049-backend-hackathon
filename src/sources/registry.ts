@@ -146,8 +146,8 @@ export function createRegistry(deps: { sources: FreelancerSource[]; store: Store
       return finish(stale, { ok: true, cached: true, ...(!pinned && { stale: true }) });
     }
 
-    if (source.kind === 'browser') {
-      // Never wait on a browser: read in the background for next time.
+    if (source.kind === 'browser' && !config.BROWSER_WAIT) {
+      // BROWSER_WAIT=false: never wait on a browser; read in the background for next time.
       fetchLive(source, brief, keys, limit, background);
       progress(`${source.name}: reading in the background`);
       return finish([], { ok: false, cached: false, late: true, error: 'reading in the background' });

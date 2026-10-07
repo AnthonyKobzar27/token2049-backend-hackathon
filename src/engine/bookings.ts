@@ -585,7 +585,9 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
           console.error(`[bookings] release retry failed for ${booking.id}:`, err);
         }
       }
-      for (const booking of store.listBookings({ status: POLLED })) {
+      // A handoff with a platform reference (e.g. a RentAHuman escrow a person pays at checkout) is followed too.
+      const handedOff = store.listBookings({ status: ['handoff'] }).filter((b) => b.platformRef && registry.get(b.source)?.getBookingStatus);
+      for (const booking of [...store.listBookings({ status: POLLED }), ...handedOff]) {
         if (busy.has(booking.id)) continue;
         try {
           await applyPlatformStatus(booking);

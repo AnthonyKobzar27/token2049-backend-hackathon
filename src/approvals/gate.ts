@@ -11,7 +11,8 @@ export function createApprovalGate(deps: { store: Store; bus: EventBus; policy: 
 
   // Headless local run (no bot, no operator): nobody could ever answer, so approve
   // after emitting the events. Production setups with a token always wait for a person.
-  const headless = !config.TELEGRAM_OPERATOR_ID && !config.TELEGRAM_BOT_TOKEN;
+  // MANUAL_APPROVALS keeps them waiting for the dashboard or the iMessage bridge instead.
+  const headless = !config.TELEGRAM_OPERATOR_ID && !config.TELEGRAM_BOT_TOKEN && !config.MANUAL_APPROVALS;
 
   // Approvals left pending by a previous process can no longer be answered.
   for (const a of store.listApprovals({ status: 'pending' })) {

@@ -13,6 +13,8 @@ export interface ReadOptions {
   signal?: AbortSignal;
   settleMs?: number;
   maxChars?: number;
+  /** Shows the hidden Chrome window during a human check (setChromeVisible). */
+  reveal?: (visible: boolean) => Promise<void>;
 }
 
 export interface PageRead {
@@ -64,7 +66,7 @@ const textScript = (pattern: string | null, flags: string, max: number): string 
  */
 export async function readPage(page: Page, url: string, opts: ReadOptions): Promise<PageRead> {
   const { signal, bus, site, settleMs = 1500, maxChars = MAX_TEXT_CHARS } = opts;
-  await paceNavigation(signal);
+  await paceNavigation(signal, undefined, url);
   const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   const status = response?.status();
   await sleep(settleMs, signal);
@@ -72,7 +74,7 @@ export async function readPage(page: Page, url: string, opts: ReadOptions): Prom
   let challenge: PageRead['challenge'] = 'none';
   let reason = await detectChallenge(page, { status });
   if (reason) {
-    const cleared = await waitForOperator(page, bus, site, { signal });
+    const cleared = await waitForOperator(page, bus, site, { signal, reveal: opts.reveal });
     challenge = cleared ? 'cleared' : 'blocked';
     if (!cleared) return { url: page.url(), title: await page.title().catch(() => ''), text: '', challenge, challengeReason: reason, status };
     await sleep(settleMs, signal);

@@ -6,6 +6,7 @@
 import type { Brief, BriefWhen, Ms, TaskType } from '../domain/types';
 import { placeLabel, resolvePlace } from '../router/geo';
 import { briefZone, hhmm, parseWhen } from '../router/when';
+import { keywords, languageCode } from '../sources/http';
 
 const ON_SITE = /\b(on[- ]?site|in[- ]person|onsite|errands?|pick ?up|pickup|collect|drop[- ]?off|deliver(y|ies)?|courier|queue|queu(e|ing) for|stand in line|event staff|usher|booth|venue|help (me )?move|moving|assemble|handyman|clean(ing)?|walk (my )?dog|photograph(er|y)? (at|for) (my|our|the) (event|wedding|party|conference))\b/;
 const REMOTE = /\b(remote(ly)?|online|anywhere|virtual)\b/;
@@ -53,14 +54,103 @@ export function cleanWhen(raw: { date?: unknown; start?: unknown; end?: unknown;
 export function enrichBrief(brief: Brief, now: Ms = Date.now()): Brief {
   const text = [brief.task, brief.notes].filter(Boolean).join('\n');
   const out: Brief = { ...brief };
-  if (!out.location && out.remoteOk === false) {
+  const terms = extractTerms(text);
+  if (out.budgetUsd === undefined && terms.budgetUsd !== undefined) out.budgetUsd = terms.budgetUsd;
+  if (out.hoursNeeded === undefined && terms.hoursNeeded !== undefined) out.hoursNeeded = terms.hoursNeeded;
+  if (out.deadlineDays === undefined && terms.deadlineDays !== undefined) out.deadlineDays = terms.deadlineDays;
+  if (!out.language && terms.language) out.language = terms.language;
+  if (!out.location) {
+    // On-site work needs the place; remote work keeps a named place as a soft preference.
     const place = extractPlace(text);
     if (place) out.location = place;
+  }
+  if (!out.skills?.length) {
+    // Skill words for searching, without the place ("photographer in Marina Bay" searches "photographer").
+    const placeWords = new Set((out.location ?? '').toLowerCase().split(/\W+/).filter(Boolean));
+    out.skills = keywords(brief.task, 6).filter((w) => !placeWords.has(w)).slice(0, 3);
   }
   if (!out.when) {
     const when = parseWhen(text, now, briefZone(out));
     if (when) out.when = when;
   }
+  return out;
+}
+
+export interface ExtractedTerms {
+  budgetUsd?: number;
+  hoursNeeded?: number;
+  deadlineDays?: number;
+  /** ISO 639-1 code of the language the worker must speak. */
+  language?: string;
+}
+
+const LANGUAGE_PHRASES = [
+  /\b(?:speaks?|speaking|fluent in|native(?: speaker of)?|who knows|in|taught in|lessons in|conducted in)\s+([A-Za-z]+)\b/gi,
+  /\b([A-Za-z]+)[- ]speak(?:ing|er)\b/gi,
+];
+
+/** The language named as a requirement ("in Spanish", "Mandarin-speaking", "speaks French"). */
+export function extractLanguage(text: string): string | undefined {
+  for (const re of LANGUAGE_PHRASES) {
+    for (const m of text.matchAll(re)) {
+      const word = m[1]!;
+      // Only real language names, written as names ("in Spanish", not "in person" or "in Singapore").
+      if (word.length < 4 || word[0] !== word[0]!.toUpperCase()) continue;
+      const code = languageCode(word.toLowerCase());
+      if (code) return code;
+    }
+  }
+  return undefined;
+}
+
+/** Rough USD per unit for budgets written in other currencies. */
+const TO_USD: Record<string, number> = { S$: 0.74, SGD: 0.74, '£': 1.27, GBP: 1.27, '€': 1.08, EUR: 1.08, A$: 0.65, AUD: 0.65, C$: 0.73, CAD: 0.73, '₹': 0.012, INR: 0.012 };
+
+/**
+ * Pay, duration and deadline as people text them: "$80", "budget 80", "S$50", "$20/hr",
+ * "2 hours", "90 minutes", "within 3 days". An hourly rate becomes a total when the hours are known.
+ */
+export function extractTerms(text: string): ExtractedTerms {
+  const s = text.replace(/,(?=\d{3}\b)/g, '');
+  const out: ExtractedTerms = {};
+  const minutes = /\b(\d+(?:\.\d+)?)\s*(?:minutes?|mins?)\b/i.exec(s);
+  const hours = /\b(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b(?!\s*\/)/i.exec(s);
+  if (hours && Number(hours[1]) > 0) out.hoursNeeded = Number(hours[1]);
+  else if (minutes && Number(minutes[1]) > 0) out.hoursNeeded = Math.round((Number(minutes[1]) / 60) * 100) / 100;
+
+  const money =
+    /(S\$|A\$|C\$|US\$|\$|£|€|₹)\s?(\d+(?:\.\d+)?)\s*(k\b)?(\s*(?:\/|per|an|a)\s*(?:hour|hr|h)\b)?/i.exec(s) ??
+    /\b(\d+(?:\.\d+)?)\s*(k\b)?\s*(usd|sgd|gbp|eur|aud|cad|inr|dollars?|bucks)\b(\s*(?:\/|per|an|a)\s*(?:hour|hr|h)\b)?/i.exec(s) ??
+    /\b(?:budget|pay|paying|up to|max(?:imum)?|under)\s*(?:is|of|:)?\s*(\d+(?:\.\d+)?)\b/i.exec(s);
+  if (money) {
+    let amount: number;
+    let unit = 'USD';
+    let hourly = false;
+    if (money[0].match(/^(S\$|A\$|C\$|US\$|\$|£|€|₹)/i)) {
+      unit = money[1]!.toUpperCase() === 'US$' ? 'USD' : money[1]!.toUpperCase();
+      amount = Number(money[2]) * (money[3] ? 1000 : 1);
+      hourly = !!money[4];
+    } else if (money.length > 4) {
+      amount = Number(money[1]) * (money[2] ? 1000 : 1);
+      const cur = money[3]!.toUpperCase();
+      unit = /DOLLAR|BUCK/.test(cur) ? 'USD' : cur;
+      hourly = !!money[4];
+    } else {
+      amount = Number(money[1]);
+    }
+    const usd = amount * (unit === 'USD' || unit === '$' ? 1 : (TO_USD[unit] ?? 1));
+    const total = hourly ? usd * (out.hoursNeeded ?? 1) : usd;
+    if (total > 0) out.budgetUsd = Math.round(total * 100) / 100;
+  }
+
+  const language = extractLanguage(s);
+  if (language) out.language = language;
+
+  const within = /\b(?:within|in|next)\s+(\d+)\s*(day|week)s?\b/i.exec(s);
+  if (within) out.deadlineDays = Number(within[1]) * (within[2]!.toLowerCase() === 'week' ? 7 : 1);
+  else if (/\b(today|tonight|asap|urgent(ly)?)\b/i.test(s)) out.deadlineDays = 1;
+  else if (/\btomorrow\b/i.test(s)) out.deadlineDays = 2;
+  else if (/\b(this|by the) week(end)?\b/i.test(s)) out.deadlineDays = 7;
   return out;
 }
 

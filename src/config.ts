@@ -40,12 +40,16 @@ const schema = z.object({
   /** Per-source caps overriding SOURCE_TIMEOUT_MS, e.g. "freelancer:8000,rentahuman:5000". */
   SOURCE_TIMEOUTS: optional,
   /** Whole routing request (search plus scoring) should answer within this; late sources are marked and ranked next time. */
-  SEARCH_BUDGET_MS: int(6_000),
+  SEARCH_BUDGET_MS: int(20_000),
+  /** Wait for browser-read sites (PeoplePerHour, Guru) within SEARCH_BUDGET_MS like API sources. false: read them in the background for the next search. */
+  BROWSER_WAIT: bool(true),
   /** Stage demo: cached results never expire or refresh, and the budget drops to DEMO_BUDGET_MS. Warm it with scripts/demo-warm.ts. */
   DEMO_MODE: bool(false),
   DEMO_BUDGET_MS: int(2_000),
-  /** Browser-read sources (Fiverr and co.) are opt-in; even then they never block a search (cache plus background refresh). */
-  BROWSER_SOURCES: bool(false),
+  /** Browser-read sources (PeoplePerHour, Guru, ...) in the operator's Chrome. They switch themselves off while Chrome is not reachable and never block a search (cache plus background refresh). */
+  BROWSER_SOURCES: bool(true),
+  /** Book on sites without a booking API by messaging the freelancer from the operator's logged-in Chrome (brief + request for an offer). Never orders or pays. */
+  BROWSER_CONTACT: bool(true),
   /** JSON overrides of the scoring weights per task type, e.g. {"in_person":{"location":0.4}}. */
   ROUTER_WEIGHTS: optional,
   PROFILE_CACHE_TTL_MIN: int(360),
@@ -53,10 +57,30 @@ const schema = z.object({
   /** Minutes an unanswered check-in stays open before the job ends with no booking. */
   CHECKIN_TIMEOUT_MIN: int(120),
   APPROVAL_TIMEOUT_MIN: int(60),
+  /** Approvals wait for a person even without Telegram: answer them from the dashboard or by texting YES/NO to the iMessage bridge. */
+  MANUAL_APPROVALS: bool(false),
+  /** Extra browser origins allowed to call /api (the dashboard on another host). Localhost origins are always allowed. */
+  DASHBOARD_ORIGINS: optional,
 
   FREELANCER_TOKEN: optional,
   FREELANCER_SANDBOX_TOKEN: optional,
   RENTAHUMAN_API_KEY: optional,
+  /**
+   * How a RentAHuman booking is made. live: hire the chosen human through RentAHuman's escrow
+   * (agent checkout; funded from the RentAHuman wallet, else a checkout link for a person to pay).
+   * dry_run: price a bounty without charging. handoff: only link the profile. Needs RENTAHUMAN_API_KEY.
+   */
+  RENTAHUMAN_BOOKING: z.enum(['live', 'dry_run', 'handoff']).default('live'),
+  /** Create Freelancer.com "Hire Me" projects on the live site with FREELANCER_TOKEN (default: sandbox only). */
+  FREELANCER_LIVE_BOOKING: bool(false),
+
+  /** Fiverr search: mcp = the free fiverr-mcp-server over stdio (falls back to Chrome); browser = Chrome only; off. */
+  FIVERR_SEARCH: z.enum(['mcp', 'browser', 'off']).default('mcp'),
+  FIVERR_MCP_COMMAND: z.string().default('uvx'),
+  /** mcp<2 because fiverr-mcp-server 0.1.x imports FastMCP, renamed in mcp 2. */
+  FIVERR_MCP_ARGS: z.string().default('--with "mcp[cli]<2" fiverr-mcp-server'),
+  /** Per-call timeout; the first call may download the server. */
+  FIVERR_MCP_TIMEOUT_MS: int(20_000),
 
   /** Upwork GraphQL API: a user token, or an Enterprise app's client credentials. */
   UPWORK_ACCESS_TOKEN: optional,
@@ -81,8 +105,8 @@ const schema = z.object({
 
   /** Chrome DevTools endpoint of the operator's own logged-in browser. */
   CHROME_CDP_URL: z.string().default('http://127.0.0.1:9222'),
-  /** Comma-separated browser-read sites, e.g. "fiverr,peopleperhour". */
-  BROWSER_SITES: z.string().default('fiverr'),
+  /** Comma-separated browser-read sites. Fiverr has its own source (FIVERR_SEARCH); "fiverr" here is ignored. */
+  BROWSER_SITES: z.string().default('peopleperhour,guru'),
 
   /** Masumi job fee. Unset MASUMI_API_KEY means jobs start without payment. */
   MASUMI_API_URL: z.string().default('http://localhost:3001/api/v1'),

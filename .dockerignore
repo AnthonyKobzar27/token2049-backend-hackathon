@@ -1,0 +1,11 @@
+node_modules
+.git
+.claude
+frontend
+messages
+**/.venv
+**/__pycache__
+*.db
+.env
+.env.*
+!.env.example
