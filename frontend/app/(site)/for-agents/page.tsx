@@ -38,7 +38,7 @@ export default function ForAgentsPage() {
               </Cta>
             </div>
           </div>
-          <pre className="overflow-x-auto rounded-3xl bg-bright p-6 text-[13px] leading-relaxed text-white/90">
+          <pre className="glass overflow-x-auto rounded-3xl bg-black/30 p-6 text-[13px] leading-relaxed text-creamtext/90">
             <code>{CODE}</code>
           </pre>
         </div>

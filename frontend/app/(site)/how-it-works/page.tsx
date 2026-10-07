@@ -35,15 +35,15 @@ export default function HowItWorksPage() {
       </Section>
 
       <Section className="mt-20">
-        <div className="rounded-3xl bg-bright p-10 text-white">
-          <h2 className="font-display text-2xl font-bold">Behind the scenes</h2>
-          <p className="mt-2 max-w-2xl text-sm font-medium text-white/70">
+        <div className="glass rounded-3xl p-10">
+          <h2 className="font-display text-2xl font-bold text-creamtext">Behind the scenes</h2>
+          <p className="mt-2 max-w-2xl text-sm font-medium text-lavmute">
             Every task runs the same pipeline. Each hop emits an event you can watch live on the dashboard
             — or have texted to your phone.
           </p>
           <div className="mt-6 flex flex-wrap gap-2">
             {pipeline.map((p) => (
-              <span key={p} className="rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold">
+              <span key={p} className="rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold text-creamtext">
                 {p}
               </span>
             ))}

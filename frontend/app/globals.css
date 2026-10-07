@@ -21,6 +21,13 @@
   --color-cream: #faf4f0;
   --color-blush: #f7e8e3;
   --color-shell: #fffdfb;
+  /* Dark HaaS landing: deep navy night, cream type, lavender accents. */
+  --color-night: #242338;
+  --color-night2: #2d2c45;
+  --color-creamtext: #f6ecdd;
+  --color-lav: #c9bfe9;
+  --color-lavmute: #a9a3c9;
+  --color-pinkish: #f4c4d6;
 }
 
 body {
@@ -88,4 +95,36 @@ h3,
 }
 .animate-breathe {
   animation: breathe 2.2s ease-in-out infinite;
+}
+
+/* ------------------------------------------------- dark HaaS landing bits */
+
+/* Frosted dark card. */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Floating translucent spheres behind the landing page. */
+@keyframes drift {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-22px);
+  }
+}
+.bubble {
+  position: absolute;
+  border-radius: 9999px;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 32% 28%,
+    rgba(224, 222, 242, 0.5),
+    rgba(162, 160, 194, 0.22) 55%,
+    rgba(130, 128, 162, 0.1) 78%,
+    transparent 92%
+  );
+  animation: drift 16s ease-in-out infinite;
 }

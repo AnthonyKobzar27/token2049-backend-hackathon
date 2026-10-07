@@ -43,20 +43,20 @@ export default function TrustPage() {
 
       <Section className="mt-16">
         <div className="grid items-start gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl bg-shell p-8 card-shadow">
-            <h3 className="font-display text-xl font-bold">Identity and record</h3>
-            <p className="mt-2 text-sm font-medium leading-relaxed text-soft">
+          <div className="glass rounded-3xl p-8">
+            <h3 className="font-display text-xl font-bold text-creamtext">Identity and record</h3>
+            <p className="mt-2 text-sm font-medium leading-relaxed text-lavmute">
               Candidates come from platforms with verified profiles, ratings and review history — and
               every hire adds to a record you can audit: who was hired, for how much, why, and how it
               ended. Nothing is ever deleted from the history.
             </p>
           </div>
-          <div className="rounded-3xl bg-bright p-8 text-white">
-            <h3 className="font-display text-xl font-bold">What we will not do</h3>
-            <ul className="mt-3 space-y-2.5 text-sm font-medium leading-relaxed text-white/80">
+          <div className="glass rounded-3xl bg-black/25 p-8">
+            <h3 className="font-display text-xl font-bold text-creamtext">What we will not do</h3>
+            <ul className="mt-3 space-y-2.5 text-sm font-medium leading-relaxed text-lavmute">
               {wont.map((w) => (
                 <li key={w} className="flex gap-2.5">
-                  <span aria-hidden className="text-white/40">—</span>
+                  <span aria-hidden className="text-lav/50">—</span>
                   {w}
                 </li>
               ))}
