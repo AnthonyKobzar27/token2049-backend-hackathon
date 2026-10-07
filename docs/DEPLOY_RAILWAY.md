@@ -75,3 +75,18 @@ Railway, stop and fix the variables.
 
 Also set `PUBLIC_URL=https://<your-railway-domain>` — x402 payment offers and
 status links, Solana Pay QRs, and bounty worker links all embed it.
+
+## Operator API access on Railway
+
+The dashboard/bridge API (`/api/*`) trusts only loopback callers without a
+token. On Railway every request arrives through the proxy, so after the first
+deploy mint the operator token from inside the service:
+
+```bash
+railway ssh -- node -e "fetch('http://127.0.0.1:8787/api/tokens',{method:'POST',headers:{'content-type':'application/json'},body:'{\"name\":\"operator\"}'}).then(r=>r.json()).then(t=>console.log(t.secret))"
+```
+
+Use that Bearer token for any remote `/api` call. The agent-facing surfaces
+(MIP-003 `/start_job`..., x402, bounty `/w/` pages) are public by design and
+need no token. For the hackathon, run the operator dashboard locally; a
+Vercel-hosted dashboard would expose its token in the JS bundle — don't.
