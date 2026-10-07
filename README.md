@@ -48,7 +48,7 @@ Example transactions from `pnpm spike:solana` (14/14 checks passed):
 |---|---|
 | An agent pays HAAS per request with x402 (402 price, on-chain payment, service delivered) | [94f40a76…](https://preprod.cardanoscan.io/transaction/94f40a76c62341e1ea8ac99a9a5211832f0a30b77218da4c0824c9fd2155e1bd), [89d4df3a…](https://preprod.cardanoscan.io/transaction/89d4df3ad916ee458f56f36467ab37cb3465a684ed71fe436c29687cc154dceb) |
 | HAAS registered on the Masumi registry (Dynamic pricing, 1 USDM per job) | agent `67ab0c92…11dd2526…133000000`, mint [d68d3ae0…](https://preprod.cardanoscan.io/transaction/d68d3ae050d562859a6264a99c5a40d50ad656a7a4f883a4df37d20cbfc4be8e) |
-| A paid Sokosumi Task: escrow funded, result hash submitted, collected after unlock | Task `01a11581-3d00-726c-a9c2-d43598c77c4e` |
+| A paid Sokosumi Task: escrow funded, result hash submitted, collected after unlock | Task `01a11581-3d00-726c-a9c2-d43598c77c4e`, payout collected [e2218d6e…](https://preprod.cardanoscan.io/transaction/e2218d6e5f4dcdce54ca586a7be017f7b43d05050b33586bd7064455de4e69aa) |
 
 ### Try it end to end
 
@@ -104,6 +104,13 @@ Nothing binding happens without a person.
 - **Quality check before payment.** No escrow is released until the delivery passes QA. When the model is slow, unavailable or unsure, a person decides.
 - **You release the money.** On Telegram the hirer sees the QA verdict and taps `Release $X` or `Ask for a fix` (with a note for the freelancer). The operator can answer too; the first answer wins.
 - **Check-ins after booking.** HAAS answers the worker's routine questions from the brief and relays the rest to you.
+
+### Booking from Telegram
+
+- **Approve first.** You pick a candidate (tap Choose, or type "book Tasya" / "the second one"); nothing is booked until the operator taps Approve.
+- **No deposit from you.** With `ESCROW_AUTO_FUND=true` HAAS funds the Solana escrow itself after the approval, so the hirer is never asked to pay a deposit in the chat.
+- **Book a specific person.** Paste their RentAHuman, Fiverr, Freelancer.com, PeoplePerHour or Guru link: that person becomes the shortlist (no search), and the same approve-first booking runs.
+- **Freelancers read a normal message.** Outreach is a short, casual note (task, when, budget, "you free?") and never mentions HAAS, AI, agents, escrow or crypto.
 
 ## Sources
 

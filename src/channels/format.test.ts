@@ -102,7 +102,7 @@ describe('format', () => {
     const booking = { priceUsd: 25.5, verification: { verdict: 'pass', score: 0.9, summary: 'Looks <good>' } } as Booking;
     const rel = hirerApprovalRequest({ action: 'accept', summary: 's' } as Approval, booking)!;
     expect(rel.text).toContain('Quality check passed (score 90/100): Looks &lt;good&gt;');
-    expect(rel.approve).toBe('Release $25.50');
+    expect(rel.approve).toBe('Pay $25.50');
     expect(rel.deny).toBe('Ask for a fix');
     const rev = hirerApprovalRequest({ action: 'revise', summary: 's', detail: 'QA failed' } as Approval, null)!;
     expect(rev.text).toContain('QA failed');
@@ -184,6 +184,6 @@ describe('format: QA', () => {
     expect(line).not.toContain('fine');
     expect(verificationLine(b, { ...r, verdict: 'pass', score: 1 })).not.toContain('•');
     expect(bookingStatusLine(b)).toMatch(/Checking the work/);
-    expect(bookingStatusLine({ ...b, status: 'rejected' })).toMatch(/refunded/);
+    expect(bookingStatusLine({ ...b, status: 'rejected' })).toMatch(/nothing is paid/);
   });
 });

@@ -3,7 +3,8 @@ import QRCode from 'qrcode';
 import { createIntake, type Intake, type IntakeTurn } from '../agent/intake';
 import { newId, now } from '../domain/ids';
 import type { CreateTelegram, TelegramDeps } from '../domain/ports';
-import type { HaasEvent, Job } from '../domain/types';
+import type { FreelancerProfile, HaasEvent, Job, Shortlist } from '../domain/types';
+import { findProfileLink, platformLabel, resolveProfileLink } from '../sources/links';
 import { explorer } from '../identity/cip68';
 import {
   approvalRequest,
@@ -66,7 +67,8 @@ const EDIT_INTERVAL_MS = 1500;
 const START_TEXT = [
   '<b>HAAS</b>: Human as a Service, an open router for freelancers.',
   'Tell me what you need done. I search Fiverr and similar platforms, rank the best fits with reasons, and check with you before anything is booked.',
-  'Your budget is held in escrow until the work passes a quality check, and afterwards I keep you and the freelancer informed.',
+  'Nobody is paid until the work passes a quality check, and I keep you and the freelancer informed.',
+  'Already know who you want? Paste their RentAHuman, Fiverr, Freelancer.com, PeoplePerHour or Guru link and I will book that person.',
   '',
   'Commands: /status for your jobs, /cancel to stop the current one, /help for this text.',
 ].join('\n');
@@ -85,6 +87,31 @@ export const OPERATOR_COMMANDS = [
 ];
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+const ORDINALS: Record<string, number> = { first: 0, '1st': 0, one: 0, '1': 0, second: 1, '2nd': 1, two: 1, '2': 1, third: 2, '3rd': 2, three: 2, '3': 2, fourth: 3, '4th': 3, four: 3, '4': 3, fifth: 4, '5th': 4, five: 4, '5': 4 };
+const PICK_VERB = /^(?:(?:ok(?:ay)?|yes|great|cool)[,!.]?\s+)?(?:please\s+)?(?:book|choose|pick|hire|take|select|go with|i(?:'ll| will)? (?:take|go with|want|pick)|let'?s (?:go with|book)|i want)\s+/;
+
+/**
+ * Which shortlist entry a typed answer names: "book Tasya", "the second one", "#2", "Tasya". Undefined
+ * unless exactly one candidate fits, so ordinary messages fall through to the intake.
+ */
+export function pickCandidate(text: string, names: string[]): number | undefined {
+  const t = text.toLowerCase().replace(/[.!?]+$/, '').replace(/\s+please$/, '').trim();
+  const rest = t.replace(PICK_VERB, '');
+  const ord = /^(?:the\s+)?(?:(?:number|option|no\.?|#)\s*)?(\w+|last)(?:\s+(?:one|option|person|candidate|freelancer|guy|girl))?$/.exec(rest)?.[1];
+  if (ord === 'last' && names.length) return names.length - 1;
+  if (ord !== undefined && ORDINALS[ord] !== undefined) {
+    const i = ORDINALS[ord];
+    return i < names.length ? i : undefined;
+  }
+  // A name: the full name or its first word ("Tasya" for "Tasya W."), only when unique.
+  const who = rest.replace(/^@/, '');
+  const hits = names.flatMap((n, i) => {
+    const full = n.toLowerCase().trim();
+    return full === who || full.split(/\s+/)[0] === who ? [i] : [];
+  });
+  return hits.length === 1 ? hits[0] : undefined;
+}
 
 /** All behaviour, independent of grammY. */
 export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?: Intake) {
@@ -105,6 +132,13 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
     try { return JSON.parse(store.getKv(histKey(chat)) ?? '[]') as IntakeTurn[]; } catch { return []; }
   };
   const writeHistory = (chat: string, h: IntakeTurn[]) => store.setKv(histKey(chat), JSON.stringify(h));
+
+  // ---- a person the hirer pasted a link to, held while the intake asks what they need done
+  const pinKey = (chat: string) => `tg:pin:${chat}`;
+  const readPin = (chat: string): FreelancerProfile | undefined => {
+    try { const raw = store.getKv(pinKey(chat)); return raw ? (JSON.parse(raw) as FreelancerProfile) : undefined; } catch { return undefined; }
+  };
+  const writePin = (chat: string, p: FreelancerProfile | undefined) => store.setKv(pinKey(chat), p ? JSON.stringify(p) : '');
   const mirror = (chat: string, from: 'hirer' | 'agent', text: string, jobId = `intake:${chat}`, bookingId?: string) => {
     try {
       store.addMessage({ id: newId('msg'), jobId, bookingId, thread: 'hirer', from, text, createdAt: now() });
@@ -148,6 +182,7 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
         const state = getState(chat);
         setState(chat, 'idle');
         writeHistory(chat, []);
+        writePin(chat, undefined);
         const job = myJobs(chat).find((j) => j.status === 'awaiting_input');
         if (job) {
           try {
@@ -164,6 +199,34 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
       default:
         return 'Unknown command. /help lists what I can do.';
     }
+  }
+
+  /**
+   * The hirer picked a shortlist entry (button or typed name): the same confirm either way, so the
+   * booking still waits for the operator's Approve. Returns the short confirmation text.
+   */
+  function choose(chat: string, sl: Shortlist, index: number): string {
+    const job = store.getJob(sl.jobId);
+    const candidate = sl.candidates[index];
+    if (!job || !candidate) return 'That list is no longer available';
+    if (chatOf(job) !== chat) return 'Not your job';
+    jobs.provideInput(job.id, { action: 'confirm', profileId: candidate.profile.id });
+    return `Chosen: ${candidate.profile.name}`;
+  }
+
+  /** "book Tasya" or "the second one" while a shortlist waits for an answer; false when the text is not a pick. */
+  async function chooseByText(chat: string, text: string): Promise<boolean> {
+    const job = myJobs(chat).find((j) => j.status === 'awaiting_input');
+    const sl = job && ((job.shortlistId && store.getShortlist(job.shortlistId)) || store.latestShortlist(job.id));
+    if (!sl?.candidates.length) return false;
+    const index = pickCandidate(text, sl.candidates.map((c) => c.profile.name));
+    if (index === undefined) return false;
+    try {
+      await api.send(chat, `${esc(choose(chat, sl, index))}. I will confirm once it is booked.`);
+    } catch (err) {
+      await api.send(chat, `Could not choose: ${esc(errText(err))}`);
+    }
+    return true;
   }
 
   /** Resolves a denial, with the note the person typed (or none). */
@@ -212,9 +275,27 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
       setState(chat, 'idle');
     }
 
+    if (state === 'idle' && (await chooseByText(chat, text))) return;
+
+    // A pasted profile link: that person is the shortlist. The intake still asks what the job is.
+    const link = findProfileLink(text);
+    if (state === 'idle') {
+      writeHistory(chat, []);
+      writePin(chat, undefined);
+    }
+    let said = text;
+    if (link) {
+      const person = await resolveProfileLink(link, deps.registry);
+      writePin(chat, person);
+      const who = `${person.name} on ${platformLabel(person.platform)}`;
+      // The intake reads words, not links: say whom they mean, and keep whatever else they wrote.
+      const rest = text.replace(/https?:\/\/\S+/gi, '').trim();
+      said = rest ? `${rest} (I want to book ${who}.)` : `I want to book ${who}.`;
+      await api.send(chat, `Got it, <b>${esc(who)}</b>.`);
+    }
+
     // intake
-    if (state === 'idle') writeHistory(chat, []);
-    const history = [...readHistory(chat), { from: 'hirer' as const, text }];
+    const history = [...readHistory(chat), { from: 'hirer' as const, text: said }];
     mirror(chat, 'hirer', text);
     let result;
     try {
@@ -233,9 +314,11 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
     }
     writeHistory(chat, []);
     setState(chat, 'idle');
-    await api.send(chat, `<b>Got it.</b>\n${esc(result.summary)}\n\nSearching now.`);
+    const pinned = readPin(chat);
+    writePin(chat, undefined);
+    await api.send(chat, `<b>Got it.</b>\n${esc(result.summary)}\n\n${pinned ? `Checking ${esc(pinned.name)} for this now.` : 'Searching now.'}`);
     try {
-      jobs.startJob({ brief: result.brief, client: 'telegram', clientRef: chat });
+      jobs.startJob({ brief: result.brief, client: 'telegram', clientRef: chat, ...(pinned && { pinned }) });
     } catch (err) {
       await api.send(chat, `Could not start the search: ${esc(errText(err))}`);
     }
@@ -271,12 +354,8 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
       switch (cb.kind) {
         case 'choose': {
           const sl = store.getShortlist(cb.shortlistId);
-          const job = sl && store.getJob(sl.jobId);
-          const candidate = sl?.candidates[cb.index];
-          if (!sl || !job || !candidate) return api.answer(callbackId, 'That list is no longer available');
-          if (chatOf(job) !== chat) return api.answer(callbackId, 'Not your job');
-          jobs.provideInput(job.id, { action: 'confirm', profileId: candidate.profile.id });
-          return api.answer(callbackId, `Chosen: ${candidate.profile.name}`);
+          if (!sl) return api.answer(callbackId, 'That list is no longer available');
+          return api.answer(callbackId, choose(chat, sl, cb.index));
         }
         case 'refine': {
           const job = store.getJob(cb.jobId);
@@ -445,6 +524,8 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
         return;
       }
       case 'escrow.updated': {
+        // HAAS funds and settles the escrow itself: the chat never sees it.
+        if (config.ESCROW_AUTO_FUND) return;
         const e = event.escrow;
         if (lastEscrowStatus.get(e.id) === e.status) return;
         lastEscrowStatus.set(e.id, e.status);
@@ -466,6 +547,7 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
         return;
       }
       case 'escrow.timeout': {
+        if (config.ESCROW_AUTO_FUND) return;
         const chat = chatOfBooking(event.booking.id);
         if (chat) await api.send(chat, escrowTimeoutLine(event.kind, event.escrow));
         return;

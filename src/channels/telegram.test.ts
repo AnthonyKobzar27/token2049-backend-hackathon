@@ -4,11 +4,11 @@ import { testConfig } from '../config';
 import { createEventBus } from '../domain/events';
 import type { Store, TelegramDeps } from '../domain/ports';
 import type { Approval, Booking, Job, Shortlist } from '../domain/types';
-import { createController, registerTelegramExtension, type Button, type TgApi } from './telegram';
+import { createController, pickCandidate, registerTelegramExtension, type Button, type TgApi } from './telegram';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-function setup(intakeResults: Awaited<ReturnType<Intake['next']>>[] = []) {
+function setup(intakeResults: Awaited<ReturnType<Intake['next']>>[] = [], extra: Partial<TelegramDeps> = {}) {
   const kv = new Map<string, string>();
   const job = { id: 'job_1', client: 'telegram', clientRef: '7', status: 'awaiting_input', brief: { task: 'Design a logo', skills: [], remoteOk: true }, createdAt: 1 } as unknown as Job;
   const shortlist = { id: 'sl_1', jobId: 'job_1', round: 1, sources: [], candidates: [{ profile: { id: 'p:1', name: 'Ann', platform: 'p', headline: '', url: '', skills: [], pricing: [] }, score: 50, reason: 'r', unknowns: [] }] } as unknown as Shortlist;
@@ -25,6 +25,7 @@ function setup(intakeResults: Awaited<ReturnType<Intake['next']>>[] = []) {
     getJob: (id: string) => (id === 'job_1' ? job : id === 'job_other' ? ({ ...job, id, clientRef: '8' } as Job) : null),
     listJobs: (f?: { clientRef?: string }) => (!f?.clientRef || f.clientRef === '7' ? [job] : []),
     getShortlist: (id: string) => (id === 'sl_1' ? shortlist : null),
+    latestShortlist: (id: string) => (id === 'job_1' ? shortlist : null),
     getBooking: (id: string) => (id === 'bk_1' ? booking : null),
     getApproval: (id: string) => approvals.get(id) ?? null,
   } as unknown as Store;
@@ -42,11 +43,65 @@ function setup(intakeResults: Awaited<ReturnType<Intake['next']>>[] = []) {
     clearKeyboard: async (chat, messageId) => void cleared.push({ chat, messageId }),
   };
   const queue = [...intakeResults];
-  const intake: Intake = { next: async () => queue.shift()! };
+  const heard: string[] = [];
+  const intake: Intake = { next: async (h) => (heard.push(h.at(-1)!.text), queue.shift()!) };
   const bus = createEventBus();
-  const deps = { jobs, bookings: {}, gate, policy, store, bus, config: testConfig({ TELEGRAM_OPERATOR_ID: '99', PUBLIC_URL: 'https://haas.test' }) } as unknown as TelegramDeps;
-  return { c: createController(deps, api, intake), jobs, gate, policy, sent, answers, cleared, kv, job, approvals, bus };
+  const deps = { jobs, bookings: {}, gate, policy, store, bus, config: testConfig({ TELEGRAM_OPERATOR_ID: '99', PUBLIC_URL: 'https://haas.test' }), ...extra } as unknown as TelegramDeps;
+  return { c: createController(deps, api, intake), jobs, gate, policy, sent, answers, cleared, kv, job, approvals, bus, heard };
 }
+
+describe('booking a specific person', () => {
+  it('reads a pick from the shortlist by name or position', () => {
+    const names = ['Tasya W.', 'Budi', 'Ann Lee'];
+    expect(pickCandidate('book Tasya', names)).toBe(0);
+    expect(pickCandidate('Ann Lee', names)).toBe(2);
+    expect(pickCandidate("ok, let's go with budi!", names)).toBe(1);
+    expect(pickCandidate('the second one', names)).toBe(1);
+    expect(pickCandidate('#3', names)).toBe(2);
+    expect(pickCandidate('the last one please', names)).toBe(2);
+    expect(pickCandidate('book the fourth one', names)).toBeUndefined();
+    expect(pickCandidate('book a plumber for tomorrow', names)).toBeUndefined();
+    expect(pickCandidate('cheaper please', names)).toBeUndefined();
+    expect(pickCandidate('Ann', ['Ann Lee', 'Ann Smith'])).toBeUndefined();
+  });
+
+  it('"book Ann" confirms Ann exactly as the Choose button does', async () => {
+    const t = setup();
+    t.job.status = 'awaiting_input';
+    await t.c.onText('7', 'book Ann');
+    expect(t.jobs.provideInput).toHaveBeenCalledWith('job_1', { action: 'confirm', profileId: 'p:1' });
+    expect(t.sent.at(-1)?.text).toBe('Chosen: Ann. I will confirm once it is booked.');
+  });
+
+  it('text that names nobody on the list goes to the intake', async () => {
+    const t = setup([{ kind: 'ask', text: 'When?' }]);
+    await t.c.onText('7', 'book a plumber');
+    expect(t.jobs.provideInput).not.toHaveBeenCalled();
+    expect(t.heard).toEqual(['book a plumber']);
+  });
+
+  it('a pasted profile link becomes the one-person shortlist once the intake has the job', async () => {
+    const person = { id: 'fiverr:tasya_w/teach-sat-math', platform: 'fiverr', platformId: 'tasya_w/teach-sat-math', url: 'https://www.fiverr.com/tasya_w/teach-sat-math', name: 'Tasya', headline: 'SAT tutor', skills: [], pricing: [], fetchedAt: 1 };
+    const getProfile = vi.fn(async () => person);
+    const registry = { enabled: () => [{ platform: 'fiverr', getProfile }], all: () => [] };
+    const brief = { task: 'SAT tutoring', skills: ['SAT tutor'], remoteOk: true };
+    const t = setup([{ kind: 'ask', text: 'What do you need help with?' }, { kind: 'brief', brief, summary: 'SAT tutoring' }], { registry } as unknown as Partial<TelegramDeps>);
+    t.job.status = 'completed' as Job['status'];
+    await t.c.onText('7', 'https://www.fiverr.com/tasya_w/teach-sat-math');
+    expect(getProfile).toHaveBeenCalledWith('tasya_w/teach-sat-math');
+    expect(t.heard).toEqual(['I want to book Tasya on Fiverr.']);
+    expect(t.sent.map((m) => m.text)).toEqual(['Got it, <b>Tasya on Fiverr</b>.', 'What do you need help with?']);
+    await t.c.onText('7', 'SAT tutoring on Saturday');
+    expect(t.jobs.startJob).toHaveBeenCalledWith({ brief, client: 'telegram', clientRef: '7', pinned: person });
+    expect(t.sent.at(-1)?.text).toContain('Checking Tasya for this now.');
+    expect(t.kv.get('tg:pin:7')).toBe('');
+  });
+
+  it('the help text says a profile link books that person', async () => {
+    const t = setup();
+    expect(await t.c.onHirerCommand('7', 'help')).toMatch(/Paste their RentAHuman, Fiverr, Freelancer\.com, PeoplePerHour or Guru link/);
+  });
+});
 
 describe('telegram controller', () => {
   it('asks, then starts a job when intake yields a brief', async () => {
@@ -106,8 +161,8 @@ describe('telegram controller', () => {
     const hirer = t.sent.find((m) => m.chat === '7')!;
     const operator = t.sent.find((m) => m.chat === '99')!;
     expect(hirer.text).toContain('Quality check passed (score 92/100)');
-    expect(hirer.text).toContain('Release $25');
-    expect(hirer.buttons?.[0]?.map((b) => b.text)).toEqual(['Release $25', 'Ask for a fix']);
+    expect(hirer.text).toContain('Pay $25');
+    expect(hirer.buttons?.[0]?.map((b) => b.text)).toEqual(['Pay $25', 'Ask for a fix']);
     expect(operator.buttons?.[0]?.map((b) => b.data)).toEqual(['a:apr_acc', 'd:apr_acc']);
     await t.c.onCallback('7', '7', 'cb', 'a:apr_acc', 1);
     expect(t.gate.resolve).toHaveBeenCalledWith('apr_acc', { approved: true, by: 'hirer:7' });

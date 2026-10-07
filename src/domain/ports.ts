@@ -154,7 +154,8 @@ export interface SuitabilityScorer {
 /** src/router/router.ts: `createRouter(deps: { registry: SourceRegistry; suitability: SuitabilityScorer; bus: EventBus; config: Config }): Router` */
 export interface Router {
   /** Fan out, normalise, hard-filter, score, explain. `exclude` are profile ids already rejected in earlier rounds. */
-  route(brief: Brief, opts: { jobId?: string; limit: number; exclude?: string[]; feedback?: string }): Promise<{ candidates: Candidate[]; sources: SourceStatus[] }>;
+  /** `only`: rank just these profiles (a person the hirer named) instead of searching. */
+  route(brief: Brief, opts: { jobId?: string; limit: number; exclude?: string[]; feedback?: string; only?: FreelancerProfile[] }): Promise<{ candidates: Candidate[]; sources: SourceStatus[] }>;
 }
 
 // -------------------------------------------------------------------- jobs
@@ -165,8 +166,9 @@ export interface JobService {
    * Creates a job. With awaitPayment the job starts in 'awaiting_payment' and
    * routing begins on markPaid; otherwise routing starts at once (status 'running').
    * Routing runs in the background; the call returns immediately.
+   * With `pinned` the hirer already chose the person (a pasted profile link): the shortlist is just them, no search.
    */
-  startJob(input: { brief: Brief; client: JobClient; clientRef?: string; awaitPayment?: boolean; id?: string }): Job;
+  startJob(input: { brief: Brief; client: JobClient; clientRef?: string; awaitPayment?: boolean; id?: string; pinned?: FreelancerProfile }): Job;
   markPaid(jobId: string): void;
   getJob(id: string): Job | null;
   getShortlist(jobId: string): Shortlist | null;
@@ -300,6 +302,8 @@ export interface TelegramDeps {
   store: Store;
   bus: EventBus;
   config: Config;
+  /** Looks up a pasted profile link on its platform; without it the link alone describes the person. */
+  registry?: SourceRegistry;
 }
 
 /** src/channels/telegram.ts: `createTelegram(deps: TelegramDeps): { start(): Promise<void>; stop(): Promise<void> }` */

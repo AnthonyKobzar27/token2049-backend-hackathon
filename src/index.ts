@@ -116,7 +116,7 @@ app.use((err: Error & { type?: string }, _req: express.Request, res: express.Res
   res.status(500).json({ error: 'internal error' });
 });
 
-const telegram = createTelegram({ jobs, bookings, gate, policy, store, bus, config });
+const telegram = createTelegram({ jobs, bookings, gate, policy, store, bus, config, registry });
 const liaison = createLiaison({ store, bus, registry, gate, config });
 const poller = createPoller({
   jobs: () => jobs.tick(),

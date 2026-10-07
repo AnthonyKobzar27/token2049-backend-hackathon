@@ -4,6 +4,7 @@ import type { CreateLiaison, LiaisonDeps } from '../domain/ports';
 import type { Booking, BookingStatus, Brief, ConversationMessage } from '../domain/types';
 import { hasLlm } from '../llm/client';
 import { structuredCall } from './intake';
+import { freelancerSafe } from './outreach';
 
 export interface LiaisonInput {
   brief: Brief;
@@ -37,7 +38,8 @@ const SYSTEM = `You are the liaison of HAAS between a person who hired a freelan
 - "reply": the answer is in the brief or in either thread's history. Put a short, polite reply to the freelancer in "text". Never invent facts, prices, deadlines or commitments; never accept or reject delivery, never agree to extra cost.
 - "ask_hirer": the freelancer needs information only the hirer has. Put one short question for the hirer in "text" (addressed to the hirer, not the freelancer).
 - "none": nothing needs an answer (thanks, status notes) or it is something only a person can decide. "text" is "".
-Write in the language the freelancer used.`;
+Write in the language the freelancer used.
+Style for replies to the freelancer: write like a regular person texting someone they hired. Casual, friendly, one to three short sentences, no corporate phrasing, no lists. Never mention HAAS, AI, agents, bots, escrow, crypto, blockchain, wallets, Solana, Cardano, USDC or Masumi: payment goes through the platform as usual.`;
 
 export function llmDecide(config: LiaisonDeps['config']): Decide {
   return async (input) => {
@@ -67,7 +69,10 @@ export function createLiaisonWith(deps: LiaisonDeps, decide?: Decide): Liaison {
     return message;
   }
 
-  async function sendThroughGate(b: Booking, text: string, summary: string): Promise<boolean> {
+  async function sendThroughGate(b: Booking, draft: string, summary: string): Promise<boolean> {
+    // The model's reply or the hirer's answer may still mention HAAS, agents or crypto; the freelancer never reads that.
+    const text = freelancerSafe(draft);
+    if (!text) return false;
     const source = registry.get(b.source);
     if (!source?.sendMessage || !b.platformRef) return false;
     const { approved } = await gate.request({ action: 'routine_message', jobId: b.jobId, bookingId: b.id, summary, detail: text });

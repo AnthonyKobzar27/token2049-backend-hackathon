@@ -225,6 +225,8 @@ const schema = z.object({
   SOLANA_ESCROW_PROGRAM_ID: z.string().default('9hzyeY6LPaQzJWszBjtYU17sHN2XmQD6FmyJFCNrs727'),
   /** Minutes the hirer has to fund escrow before the booking is cancelled. */
   ESCROW_DEPOSIT_TIMEOUT_MIN: int(60),
+  /** HAAS funds each booking's escrow from its own operator wallet, so the hirer is never asked to pay a deposit (solana-program). */
+  ESCROW_AUTO_FUND: bool(false),
   /** Delivery window in days when the brief has no deadline. */
   ESCROW_DELIVERY_DAYS: int(14),
   /** Hours added after the delivery window before the escrow deadline (time to review and verify). */

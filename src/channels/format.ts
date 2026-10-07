@@ -149,18 +149,18 @@ export function jobsStatus(jobs: Job[]): string {
 }
 
 const STATUS_TEXT: Partial<Record<Booking['status'], string>> = {
-  pending_escrow: 'Waiting for your deposit into escrow.',
-  awaiting_approval: 'Deposit received. Waiting for the operator to approve the booking.',
+  pending_escrow: 'Getting the booking ready.',
+  awaiting_approval: 'Waiting for approval to book.',
   placed: 'Booked. The freelancer has the order.',
   handoff: 'One step needs you to finish on the platform.',
   delivered: 'The freelancer delivered. Review it; the operator will accept or ask for a revision.',
   verifying: 'The freelancer delivered. Checking the work before any payment is released.',
   verified: 'The work passed the quality check. Waiting for the release approval.',
   in_revision: 'The freelancer was asked to fix the work.',
-  rejected: 'The work failed the quality check twice. Nothing is paid; your deposit is being refunded.',
-  completed: 'Completed. The escrowed budget is being released.',
+  rejected: 'The work failed the quality check twice, so nothing is paid.',
+  completed: 'Completed. The freelancer is being paid.',
   cancelled: 'The booking was cancelled.',
-  refunded: 'The booking was cancelled and your deposit is being refunded.',
+  refunded: 'The booking was cancelled. Nothing is paid.',
 };
 
 /** One line for a meaningful booking change, or null when nothing is worth saying. */
@@ -215,7 +215,9 @@ export function escrowLine(e: EscrowRecord): string | null {
   let url: string | undefined;
   switch (e.status) {
     case 'funded':
-      text = `Escrow funded with ${amount}${e.payer ? ` from ${esc(short(e.payer))}` : ''}`;
+      text = e.fundedByHaas
+        ? `HAAS locked ${amount} in escrow on Solana for this booking. You pay nothing up front`
+        : `Escrow funded with ${amount}${e.payer ? ` from ${esc(short(e.payer))}` : ''}`;
       url = txUrl(e, 'deposit');
       break;
     case 'released':
@@ -224,7 +226,7 @@ export function escrowLine(e: EscrowRecord): string | null {
       url = txUrl(e, 'release');
       break;
     case 'refunded':
-      text = `Refunded ${amount}${e.payer ? ` to ${esc(short(e.payer))}` : ' to you'}`;
+      text = e.fundedByHaas ? `Refunded ${amount} to the HAAS wallet` : `Refunded ${amount}${e.payer ? ` to ${esc(short(e.payer))}` : ' to you'}`;
       url = txUrl(e, 'refund');
       break;
     default:
@@ -252,8 +254,8 @@ export function hirerApprovalRequest(a: Approval, booking?: Booking | null): { t
   const qaLine = qa ? `${QA_HEAD[qa.verdict]} (score ${Math.round(qa.score * 100)}/100): ${esc(qa.summary)}` : esc(a.detail ?? a.summary);
   if (a.action === 'accept') {
     return {
-      text: [`<b>The freelancer delivered.</b>`, qaLine, `Release ${price} from escrow to them, or ask for a fix?`].join('\n'),
-      approve: `Release ${price}`,
+      text: [`<b>The freelancer delivered.</b>`, qaLine, `Pay ${price} to them, or ask for a fix?`].join('\n'),
+      approve: `Pay ${price}`,
       deny: 'Ask for a fix',
     };
   }
