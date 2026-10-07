@@ -102,6 +102,8 @@ Notes on the Solana Pay step:
 
 ## 4. Gaps in the Telegram integration
 
+**Status (2026-10-07):** G1 to G9 and C1 (the `reputation.recorded` event), C3 (`GET /pay/<bookingId>`) are built; see `docs/MANUAL_TESTING.md` 2.2. The hirer's `Release` / `Ask for a fix` buttons, the deny note, the `/pay` link, amount and payee on release and refund lines, `in_revision` text, the richer result, job context on approvals, the Cardano receipt line and the worker's `Claim` button are in `src/channels/telegram.ts`, `src/channels/format.ts` and `src/bounty/telegram.ts`. `/status`, `/cancel` and `/help` were added for hirers. G10 and G11 (channel-neutral controller) remain for the iMessage transport; the Python bridge in `messages/` covers iMessage over the REST API meanwhile.
+
 | # | Gap | Where | Change |
 |---|---|---|---|
 | G1 | The hirer never approves the release. `askRelease` says "the hirer sees the QA report and approves" (`src/engine/bookings.ts:333`), but every approval goes only to the operator (`telegram.ts:370-374`) and only the operator may press it (`:199`) | `telegram.ts:197-203`, `:370-374` | For `accept` and `revise` approvals with a `jobId` whose job has a chat, also send the approval to the hirer with `Release` / `Ask for a fix`. Accept the hirer's press when `chatOf(job) === chat`. Keep the operator's buttons too: first answer wins (`gate.resolve` ignores a second answer, `gate.ts:21-23`) |

@@ -24,7 +24,8 @@
     "identity:demo": "tsx scripts/reputation-demo.ts",
     "veridian:schema": "tsx src/identity/veridian/schema.ts",
     "veridian:demo": "tsx scripts/veridian-demo.ts",
-    "veridian:wallet": "tsx scripts/veridian-wallet.ts"
+    "veridian:wallet": "tsx scripts/veridian-wallet.ts",
+    "demo:agent": "tsx scripts/demo-ai-agent.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",

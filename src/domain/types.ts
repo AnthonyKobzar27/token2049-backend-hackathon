@@ -547,7 +547,9 @@ export type HaasEvent =
   /** A person must act outside the app, e.g. solve a challenge in the browser. */
   | { type: 'operator.attention'; source: string; message: string; url?: string }
   /** A first-party bounty changed state. 'expired' carries the stage that timed out (escrow refunds on it). */
-  | { type: 'bounty.updated'; bounty: BountyEvent };
+  | { type: 'bounty.updated'; bounty: BountyEvent }
+  /** A completed job was recorded on the worker's Cardano credential (and a receipt NFT minted, when on). */
+  | { type: 'reputation.recorded'; workerId: string; bookingId: string; jobId: string; txHash: string; receiptUnit?: string; jobsCompleted: number; avgRating?: number };
 
 export type BountyStatus = 'posted' | 'claimed' | 'submitted' | 'verified' | 'paid' | 'rejected' | 'expired' | 'cancelled';
 

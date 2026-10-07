@@ -21,6 +21,55 @@ const DEPOSIT_LANDING_MS = 2 * 60_000;
 
 const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#14151a"/><text x="32" y="42" font-family="sans-serif" font-size="24" font-weight="700" fill="#14f195" text-anchor="middle">HA</text></svg>`;
 
+const page = (title: string, body: string): string => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
+<style>body{font-family:-apple-system,system-ui,sans-serif;background:#14151a;color:#eee;margin:0;padding:24px;text-align:center}main{max-width:420px;margin:0 auto}h1{font-size:22px}.amt{font-size:34px;font-weight:700;color:#14f195;margin:8px 0}p{color:#aaa;line-height:1.4}a.btn{display:block;background:#14f195;color:#14151a;font-weight:700;padding:16px;border-radius:12px;text-decoration:none;margin:20px 0;font-size:18px}img{width:260px;height:260px;border-radius:12px;background:#fff;padding:8px}code{display:block;word-break:break-all;background:#222;padding:10px;border-radius:8px;font-size:12px;color:#ccc}</style></head><body><main>${body}</main></body></html>`;
+
+const escHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/**
+ * GET /pay/:bookingId: a phone-friendly page with the amount, the deadline, the QR (for a second device)
+ * and an "Open in wallet" button that follows the solana: link. Chat apps cannot link a solana: URL
+ * directly, and a phone cannot scan its own screen; this page bridges both. Works for every escrow
+ * provider that sets payUrl or an address.
+ */
+export function mountPayPage(app: Express, deps: { store: Store; config: { PUBLIC_URL: string; SOLANA_RPC_URL?: string } }): void {
+  const { store, config } = deps;
+  app.get('/pay/:bookingId', (req, res) => {
+    const bookingId = String(req.params.bookingId);
+    const esc = store.getEscrowByBooking(bookingId);
+    if (!esc) {
+      res.status(404).type('html').send(page('Unknown booking', '<h1>Unknown booking</h1><p>There is no escrow for this booking.</p>'));
+      return;
+    }
+    const amount = `${esc.amount} ${esc.currency}`;
+    if (esc.status !== 'awaiting_deposit') {
+      res.type('html').send(page('HAAS escrow', `<h1>HAAS escrow</h1><div class="amt">${amount}</div><p>This escrow is <b>${escHtml(esc.status)}</b>. Nothing more to pay.</p>`));
+      return;
+    }
+    const devnet = (config.SOLANA_RPC_URL ?? '').includes('devnet');
+    const deadline = esc.deadline ? `<p>Not accepted by ${new Date(esc.deadline).toISOString().slice(0, 16).replace('T', ' ')} UTC: the money goes back to you.</p>` : '';
+    const parts = [`<h1>Pay into HAAS escrow</h1><div class="amt">${amount}</div>`];
+    if (devnet) parts.push('<p>Test setup: switch your wallet to <b>devnet</b> first.</p>');
+    if (esc.payUrl) {
+      parts.push(`<a class="btn" href="${escHtml(esc.payUrl)}">Open in wallet</a>`);
+      parts.push(`<p>Or scan from another device:</p><img alt="Solana Pay QR" src="${escHtml(config.PUBLIC_URL.replace(/\/$/, ''))}/pay/${encodeURIComponent(bookingId)}/qr.png">`);
+      parts.push(`<p>Or paste into your wallet:</p><code>${escHtml(esc.payUrl)}</code>`);
+    } else if (esc.address) {
+      parts.push(`<p>Send ${amount} to:</p><code>${escHtml(esc.address)}</code>`);
+    }
+    parts.push(deadline, '<p>I will tell you in the chat when the deposit arrives.</p>');
+    res.type('html').send(page('Pay into HAAS escrow', parts.join('')));
+  });
+  app.get('/pay/:bookingId/qr.png', async (req, res) => {
+    const esc = store.getEscrowByBooking(String(req.params.bookingId));
+    if (!esc?.payUrl) {
+      res.status(404).json({ error: 'unknown booking' });
+      return;
+    }
+    res.type('image/png').send(await QRCode.toBuffer(esc.payUrl, { width: 480, margin: 2 }));
+  });
+}
+
 export function mountSolanaPay(app: Express, deps: SolanaPayDeps): void {
   const { store, escrow: provider, config } = deps;
   const base = config.PUBLIC_URL.replace(/\/$/, '');

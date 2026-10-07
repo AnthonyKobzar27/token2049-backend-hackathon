@@ -20,7 +20,7 @@ import { createIdentity } from './identity';
 import { bindBountyWallets, bountyWorkerOf } from './bounty/identity';
 import { mountIdentity } from './identity/api';
 import { createEscrowProvider } from './payments';
-import { mountSolanaPay } from './payments/solana-pay';
+import { mountPayPage, mountSolanaPay } from './payments/solana-pay';
 import { mountX402 } from './payments/x402';
 import { createRouter } from './router/router';
 import { createSuitabilityScorer } from './router/suitability';
@@ -89,6 +89,8 @@ mountX402(app, { jobs, store, bus, config });
 const dashboard = mountDashboard(app, { jobs, bookings, gate, registry, store, bus, config });
 // Solana Pay transaction requests for program escrow deposits (the hirer's wallet signs the deposit).
 if (escrow.buildDepositTransaction) mountSolanaPay(app, { store, escrow, config });
+// /pay/<bookingId>: the hirer's "open in wallet" page linked from the chat (any escrow provider).
+mountPayPage(app, { store, config });
 mountIdentity(app, identity);
 mountVeridian(app, veridian, { publicUrl: config.PUBLIC_URL, ...(config.VERIDIAN_OOBI_BASE_URL ? { oobiBaseUrl: config.VERIDIAN_OOBI_BASE_URL } : {}), verifyTimeoutMs: config.VERIDIAN_VERIFY_TIMEOUT_MS, ...(config.VERIDIAN_ADMIN_TOKEN ? { adminToken: config.VERIDIAN_ADMIN_TOKEN } : {}) });
 

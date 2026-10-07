@@ -203,23 +203,34 @@ JOB=$(jq -r .job_id /tmp/start.json)
 
 ### 2.2 Request in: Telegram
 
-**Setup.** Set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_OPERATOR_ID`, then restart. The boot log should show `[telegram] polling as @<yourbot>`.
+**Setup.**
+1. Bot token: message `@BotFather`, send `/newbot`, pick a name and a username ending in `bot`. Copy the token into `TELEGRAM_BOT_TOKEN`.
+2. Operator id: message `@userinfobot`; the numeric `Id` is `TELEGRAM_OPERATOR_ID`. Only this user gets approvals (book, cancel) and operator alerts, and may use `/bookings`, `/accept`, `/revise`, `/cancelbooking`.
+3. Open a chat with your bot and tap Start once (Telegram bots cannot message a user first).
+4. Restart `pnpm start`. The boot log shows `[telegram] polling as @<yourbot>`. The command menu (☰) lists `/start /status /cancel /help`, plus the operator commands in the operator's chat.
 
-1. Send `/start` to the bot. It replies "HAAS: Human as a Service, an open router for freelancers."
-2. Send in plain text: `Find a photographer in Lisbon for a product launch next Saturday 2-5pm, budget $600`.
+**Hirer flow.**
+1. Send `/start`. It replies "HAAS: Human as a Service, an open router for freelancers."
+2. Send in plain text: `Design a logo and brand kit for a coffee roastery, budget $300, within a week`.
 
 **Expected.**
 - With an Anthropic key, it asks up to 2 clarifying questions. Without a key, it starts at once.
 - It replies `Got it.` with a summary (Skills, Budget, Location, When, On site), then `Searching now.`
-- A single `⏳` progress message is edited as the search runs.
+- A single `⏳` progress message is edited as the search runs (`Searching fiverr…`, `fiverr: 8 profiles`, …).
 - Then a shortlist with buttons `Choose <name>`, plus `Different options` and `Cancel`.
+- `/status` lists this chat's jobs; `/cancel` drops an open check-in or the half-finished intake.
+- After `Choose`: the escrow message with the QR, a tappable `open in your wallet` link (`PUBLIC_URL/pay/<bookingId>`) and the `solana:` URL as copyable text. On a phone, tap the link, then "Open in wallet".
+- The operator gets `Approval needed: book` with Approve / Deny and the job's task line.
+- When the work is delivered and checked, **the hirer** gets "The freelancer delivered. Quality check passed (score N/100) … Release $X / Ask for a fix". The operator gets the same approval; the first answer wins and the buttons disappear on both. `Ask for a fix` asks for a short note (or Skip); the note becomes the revision request to the freelancer.
+- Release and refund lines show the amount, the payee and the result hash, with a link to that transaction. With Cardano identity on, a "Recorded on Cardano" line follows with the receipt NFT and transaction links.
 
 **Failure signs.**
 - `409: another process is polling this bot token`: another `pnpm start` (or a teammate) uses the same token. Stop it.
 - No reply at all: wrong token, or you messaged a different bot.
-- Telegram jobs are **not** visible on `/status` (it is MIP-003 only). That is expected.
+- `Not your job` toast: you pressed a button belonging to another chat's job, or a hirer pressed Approve on a book/cancel approval (operator only).
+- Telegram jobs are **not** visible on MIP-003 `/status`. Use `/status` in the chat or the dashboard.
 
-**Tests.** `src/channels/telegram.test.ts` (asks then starts; refine; choose; only the operator approves), `src/channels/format.test.ts`.
+**Tests.** `src/channels/telegram.test.ts` (asks then starts; refine; choose; book is operator-only; the hirer releases; deny with note; /status, /cancel; /pay link; Cardano receipt; extension buttons), `src/channels/format.test.ts`, `src/bounty/telegram.test.ts` (Claim button).
 
 ### 2.3 Scoping
 

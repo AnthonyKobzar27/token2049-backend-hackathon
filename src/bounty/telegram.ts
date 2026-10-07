@@ -6,7 +6,7 @@
 //   /ask <code> <text>  ask the client a question
 
 import { esc } from '../channels/format';
-import type { TelegramExtension } from '../channels/telegram';
+import type { ExtensionSend, TelegramExtension } from '../channels/telegram';
 import type { BountyBoard } from './board';
 import { submitExample } from './notifier';
 import { rewardLabel } from './spec';
@@ -97,10 +97,12 @@ export function createWorkerCommands(board: BountyBoard) {
 }
 
 /** Plugs the worker commands (and the worker notifier's sender) into the running Telegram bot. */
-export function workerTelegramExtension(board: BountyBoard, bindSend?: (send: ((chatId: string, html: string) => Promise<unknown>) | undefined) => void): TelegramExtension {
+export function workerTelegramExtension(board: BountyBoard, bindSend?: (send: ExtensionSend | undefined) => void): TelegramExtension {
   const cmds = createWorkerCommands(board);
   return {
     commands: Object.fromEntries(cmds.commands.map((c) => [c, (ctx: WorkerCommandContext) => cmds.handle(c, ctx)])),
+    // The "Claim <code>" button on an offer: k:<code>.
+    callbacks: { k: (ctx) => cmds.handle('claim', { chatId: ctx.chatId, args: ctx.data.slice(2) }) },
     onStart: (send) => bindSend?.(send),
     onStop: () => bindSend?.(undefined),
   };
