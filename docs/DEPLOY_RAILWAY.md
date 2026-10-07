@@ -90,3 +90,8 @@ Use that Bearer token for any remote `/api` call. The agent-facing surfaces
 (MIP-003 `/start_job`..., x402, bounty `/w/` pages) are public by design and
 need no token. For the hackathon, run the operator dashboard locally; a
 Vercel-hosted dashboard would expose its token in the JS bundle — don't.
+
+Note on `DASHBOARD_ORIGINS`: an allow-listed origin skips the token check
+(EventSource cannot send headers). Browsers enforce the Origin header but
+curl can forge it, so treat this as demo-grade access control: only allowlist
+origins while you demo, and clear the variable afterwards.

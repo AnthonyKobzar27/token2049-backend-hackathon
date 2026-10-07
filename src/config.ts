@@ -20,8 +20,13 @@ const bool = (def: boolean) =>
 
 const schema = z.object({
   PORT: int(8787),
-  /** Public HTTPS address. On Render it defaults to the service's own URL (RENDER_EXTERNAL_URL). */
-  PUBLIC_URL: z.string().default(process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:8787'),
+  /** Public HTTPS address. On Render/Railway it defaults to the service's own URL (RENDER_EXTERNAL_URL / RAILWAY_PUBLIC_DOMAIN). */
+  PUBLIC_URL: z
+    .string()
+    .default(
+      process.env.RENDER_EXTERNAL_URL ??
+        (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'http://localhost:8787'),
+    ),
   DB_PATH: z.string().default(join(HAAS_HOME, 'haas.db')),
 
   ANTHROPIC_API_KEY: optional,
