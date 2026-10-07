@@ -1,0 +1,91 @@
+@import 'tailwindcss';
+
+/* HumanRouter palette: lavender page, white cards, navy ink, purple accent,
+   pastel chips. Token names kept from the first iteration (ink = page bg,
+   bright = primary text) so component classes stay unchanged. */
+@theme {
+  --color-ink: #ecE8fb;
+  --color-panel: #ffffff;
+  --color-edge: #e4defa;
+  --color-soft: #6e68a0;
+  --color-bright: #221b4f;
+  --color-accent: #6d5bf6;
+  --color-good: #15935c;
+  --color-warn: #c07b12;
+  --color-bad: #e0526e;
+  --color-peach: #fbd9bd;
+  --color-mint: #d3f2dd;
+  --color-butter: #fdf0c1;
+  --color-lilac: #ddd6fb;
+  /* Marketing site: warm cream/blush, same navy ink. */
+  --color-cream: #faf4f0;
+  --color-blush: #f7e8e3;
+  --color-shell: #fffdfb;
+}
+
+body {
+  color: var(--color-bright);
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--font-display), var(--font-body), sans-serif;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.card-shadow {
+  box-shadow: 0 10px 30px rgba(44, 34, 120, 0.08);
+}
+
+/* ------------------------------------------------ tiny CSS-only animations */
+
+/* New feed entries and cards rise in. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-in {
+  animation: rise-in 0.35s ease-out both;
+}
+
+/* Soft expanding ring behind the live dot. */
+@keyframes soft-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  70%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+.live-ping {
+  animation: soft-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Gentle breathing for "agent at work" accents. */
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.animate-breathe {
+  animation: breathe 2.2s ease-in-out infinite;
+}

@@ -1,5 +1,6 @@
 import express from 'express';
 import { createLiaison } from './agent/liaison';
+import { mountDashboard } from './api/dashboard';
 import { createApprovalGate } from './approvals/gate';
 import { createPolicy } from './approvals/policy';
 import { createTelegram } from './channels/telegram';
@@ -51,6 +52,7 @@ app.get('/health', (_req, res) => {
 
 const masumi = mountMasumi(app, { jobs, store, bus, config });
 mountX402(app, { jobs, store, bus, config });
+const dashboard = mountDashboard(app, { jobs, bookings, gate, registry, store, bus, config });
 
 const telegram = createTelegram({ jobs, bookings, gate, policy, store, bus, config });
 const liaison = createLiaison({ store, bus, registry, gate, config });
@@ -75,6 +77,7 @@ async function shutdown() {
   stopping = true;
   poller.stop();
   masumi.stop();
+  dashboard.stop();
   await telegram.stop().catch(() => {});
   server.close();
   store.close();

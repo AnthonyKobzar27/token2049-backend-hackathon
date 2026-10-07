@@ -87,6 +87,7 @@ export function createStore(dbPath: string): Store {
     },
     getShortlist: (id) => parse(one('SELECT data FROM shortlists WHERE id = ?', id)),
     latestShortlist: (jobId) => parse(one('SELECT data FROM shortlists WHERE job_id = ? ORDER BY round DESC, created_at DESC, rowid DESC LIMIT 1', jobId)),
+    listShortlists: (jobId) => parseAll(all('SELECT data FROM shortlists WHERE job_id = ? ORDER BY round, created_at, rowid', jobId)),
 
     putProfiles(source, queryKey, profiles) {
       db.exec('BEGIN');

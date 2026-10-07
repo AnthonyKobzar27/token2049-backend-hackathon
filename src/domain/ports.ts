@@ -50,6 +50,7 @@ export interface Store {
   insertShortlist(shortlist: Shortlist): void;
   getShortlist(id: string): Shortlist | null;
   latestShortlist(jobId: string): Shortlist | null;
+  listShortlists(jobId: string): Shortlist[];
 
   /** Profile cache, keyed by source and a normalised query key. */
   putProfiles(source: string, queryKey: string, profiles: FreelancerProfile[]): void;
@@ -247,6 +248,19 @@ export type MountMasumi = (app: Express, deps: ApiDeps) => { start(): void; stop
 
 /** src/payments/x402.ts: `mountX402(app: Express, deps: ApiDeps): void` mounts POST /x402/route behind the Cardano paywall. */
 export type MountX402 = (app: Express, deps: ApiDeps) => void;
+
+export interface DashboardApiDeps {
+  jobs: JobService;
+  bookings: BookingService;
+  gate: ApprovalGate;
+  registry: SourceRegistry;
+  store: Store;
+  bus: EventBus;
+  config: Config;
+}
+
+/** src/api/dashboard.ts: `mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): void }` mounts /api/* (REST + SSE) for the web dashboard and the iMessage bridge. */
+export type MountDashboard = (app: Express, deps: DashboardApiDeps) => { stop(): void };
 
 export interface TelegramDeps {
   jobs: JobService;
