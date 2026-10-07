@@ -1,0 +1,49 @@
+# Render Blueprint for the HAAS backend (Dashboard > New > Blueprint, pick this repo).
+# Builds the Dockerfile (Node + Python + uv + the Fiverr MCP server).
+# Starter plan: always on (background checks keep running) and a persistent disk for the database.
+# The free plan sleeps after 15 idle minutes and has no disk, so jobs and approvals are lost on restart.
+services:
+  - type: web
+    name: haas
+    runtime: docker
+    plan: starter
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    disk:
+      name: haas-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      # Set the secrets in the Render dashboard (sync: false keeps them out of this file).
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
+      - key: RENTAHUMAN_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_OPERATOR_ID
+        sync: false
+      - key: FREELANCER_SANDBOX_TOKEN
+        sync: false
+      - key: MASUMI_API_URL
+        sync: false
+      - key: MASUMI_API_KEY
+        sync: false
+      - key: MASUMI_AGENT_IDENTIFIER
+        sync: false
+      - key: MASUMI_SELLER_VKEY
+        sync: false
+      - key: SOKOSUMI_COWORKER_ID
+        sync: false
+      - key: SOKOSUMI_COWORKER_API_KEY
+        sync: false
+      - key: BLOCKFROST_PROJECT_ID
+        sync: false
+      - key: RENTAHUMAN_BOOKING
+        value: dry_run
+      - key: AI_DELEGATION
+        value: human

@@ -111,3 +111,25 @@ describe('contact message', () => {
     expect(m).toMatch(/custom offer/);
   });
 });
+
+describe('fiverr Google fallback', () => {
+  it('parses Google results for gig pages and skips everything else', async () => {
+    const { serperToRaw } = await import('./fiverr');
+    const gig = serperToRaw({
+      title: 'Be your SAT math tutor by Lucaherrera | Fiverr',
+      link: 'https://www.fiverr.com/lucaherrera/be-your-sat-math-tutor?context_referrer=search',
+      snippet: 'Math tutor with 6 years of experience. 5.0 (145) From US$10',
+    });
+    expect(gig).toMatchObject({ name: 'lucaherrera', headline: 'Be your SAT math tutor', url: 'https://www.fiverr.com/lucaherrera/be-your-sat-math-tutor', priceAmount: 10, rating: 5, reviewCount: 145 });
+    expect(serperToRaw({ link: 'https://www.fiverr.com/categories/online-tutoring' })).toBeUndefined();
+    expect(serperToRaw({ link: 'https://www.fiverr.com/search/gigs?query=sat' })).toBeUndefined();
+  });
+
+  it('uses Google when the MCP server is blocked and returns nothing', async () => {
+    const google = vi.fn(async () => [gigToRaw({ seller_name: 'x', url: 'https://www.fiverr.com/x/sat-tutor', price: 0 })].map((r) => ({ ...r, name: 'tutorx' })));
+    const src = createFiverrSource({ config: testConfig(), bus, mcp: async () => ({ structuredContent: { gigs: [] } }), readPerseus: async () => null, googleSearch: google });
+    const out = await src.search(brief, { limit: 5 });
+    expect(google).toHaveBeenCalled();
+    expect(out[0]).toMatchObject({ platform: 'fiverr', url: 'https://www.fiverr.com/x/sat-tutor' });
+  });
+});

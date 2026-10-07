@@ -50,6 +50,10 @@ function createBrowserSource(site: SiteDef, deps: { config: Config; bus: EventBu
       return found.slice(0, Math.max(0, opts.limit));
     },
 
+    previewBooking(request: BookingRequest): string | undefined {
+      if (!config.BROWSER_CONTACT || !site.contact) return undefined;
+      return `On approval HAAS sends this message to ${request.profile.name} on ${site.name}:\n"${contactMessage(request.brief, request.priceUsd)}"\nHAAS never orders or pays; you accept their offer.`;
+    },
     async book(request: BookingRequest): Promise<BookingResult> {
       const { profile, brief, priceUsd } = request;
       const url = profile.url;

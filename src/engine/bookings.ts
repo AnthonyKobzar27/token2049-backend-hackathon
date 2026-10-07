@@ -163,6 +163,8 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
         return;
       }
       const brief: Brief = store.getJob(booking.jobId)?.brief ?? { task: '', skills: [], remoteOk: true };
+      // Sites booked by message: the approval carries the exact draft, so nothing reaches the freelancer unseen.
+      const preview = registry.get(booking.source)?.previewBooking?.({ bookingId: id, profile, brief, priceUsd: booking.priceUsd, pricingIndex: ctx?.pricingIndex });
 
       let approved: boolean;
       let note: string | undefined;
@@ -172,7 +174,7 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
           jobId: booking.jobId,
           bookingId: id,
           summary: `Book ${profile.name} on ${booking.platform} for $${booking.priceUsd}`,
-          detail: `${profile.headline}\n${profile.url}\nBudget is held in escrow (${esc.amount} ${esc.currency}).`,
+          detail: `${profile.headline}\n${profile.url}\nBudget is held in escrow (${esc.amount} ${esc.currency}).${preview ? `\n\n${preview}` : ''}`,
         });
         approved = res.approved;
         note = res.approval?.note;

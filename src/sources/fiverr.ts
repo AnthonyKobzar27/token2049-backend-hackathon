@@ -149,6 +149,70 @@ export function createFiverrMcp(config: Config): { call: McpCall; warm: () => vo
   };
 }
 
+/** One Google result from Serper's /search. */
+export interface SerperOrganic {
+  title?: string;
+  link?: string;
+  snippet?: string;
+  rating?: number;
+  ratingCount?: number;
+  priceRange?: string;
+  price?: number | string;
+}
+
+const GIG_URL = /^https:\/\/(?:www\.)?fiverr\.com\/([a-z0-9_.-]+)\/([a-z0-9-]+)\/?(?:[?#].*)?$/i;
+const NOT_SELLERS = /^(categories|search|gigs|pro|cp|resources|support|stories|logo-maker|go|business|sellers|pages|hire|levels)$/i;
+
+/** Turns a Google result for a Fiverr gig page into a listing; undefined for anything that is not a gig. */
+export function serperToRaw(o: SerperOrganic): RawListing | undefined {
+  const m = o.link ? GIG_URL.exec(o.link) : null;
+  if (!m || NOT_SELLERS.test(m[1]!)) return undefined;
+  const seller = m[1]!;
+  const text = `${o.title ?? ''} ${o.snippet ?? ''} ${o.priceRange ?? ''} ${o.price ?? ''}`;
+  // "From $15", "Starting at US$10", "$25.00": the gig's starting price as Google shows it.
+  const price = /(?:from|starting at|starts at|price:?)\s*(?:US)?\$\s?(\d+(?:\.\d+)?)/i.exec(text) ?? /\$\s?(\d+(?:\.\d+)?)/.exec(text);
+  const snippetRating = /\b([1-5](?:\.\d)?)\s*(?:\(([\d,.]+k?)\)|stars?|out of 5)/i.exec(o.snippet ?? '');
+  const reviews = o.ratingCount ?? (snippetRating?.[2] ? Number(snippetRating[2].replace(/,/g, '').replace(/k$/i, '000')) : undefined);
+  const rating = o.rating ?? (snippetRating ? Number(snippetRating[1]) : undefined);
+  const headline = (o.title ?? '')
+    .replace(/\s*[|\-–]\s*Fiverr.*$/i, '')
+    .replace(/\s+by\s+[\w.-]+\s*$/i, '')
+    .trim();
+  return raw({
+    name: seller,
+    headline: headline || null,
+    url: `https://www.fiverr.com/${seller}/${m[2]}`,
+    priceAmount: price ? Number(price[1]) : null,
+    priceCurrency: price ? 'USD' : null,
+    priceUnit: price ? 'fixed' : null,
+    rating: rating && reviews ? rating : null,
+    reviewCount: reviews ?? null,
+  });
+}
+
+/** Google search for Fiverr gigs through Serper. */
+export async function serperFiverr(apiKey: string, query: string, signal?: AbortSignal): Promise<RawListing[]> {
+  const res = await fetch('https://google.serper.dev/search', {
+    method: 'POST',
+    headers: { 'X-API-KEY': apiKey, 'content-type': 'application/json' },
+    body: JSON.stringify({ q: `site:fiverr.com ${query}`, num: 20 }),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`serper ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const body = (await res.json()) as { organic?: SerperOrganic[] };
+  return (body.organic ?? []).map(serperToRaw).filter((r): r is RawListing => !!r);
+}
+
+/** Google Programmable Search (Custom Search JSON API) for Fiverr gigs. */
+export async function googleCseFiverr(key: string, cx: string, query: string, signal?: AbortSignal): Promise<RawListing[]> {
+  const u = new URL('https://www.googleapis.com/customsearch/v1');
+  u.search = new URLSearchParams({ key, cx, q: `site:fiverr.com ${query}`, num: '10' }).toString();
+  const res = await fetch(u, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10_000)]) : AbortSignal.timeout(10_000) });
+  if (!res.ok) throw new Error(`google cse ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const body = (await res.json()) as { items?: { title?: string; link?: string; snippet?: string }[] };
+  return (body.items ?? []).map((i) => serperToRaw({ title: i.title, link: i.link, snippet: i.snippet })).filter((r): r is RawListing => !!r);
+}
+
 export interface FiverrDeps {
   config: Config;
   bus: EventBus;
@@ -158,6 +222,8 @@ export interface FiverrDeps {
   readPerseus?: (url: string, signal?: AbortSignal) => Promise<{ items: PerseusItem[]; currency: string } | null>;
   /** Test hook for the booking step. */
   contact?: typeof contactOnPage;
+  /** Test hook for the Google (Serper) fallback. */
+  googleSearch?: (query: string, signal?: AbortSignal) => Promise<RawListing[]>;
 }
 
 async function chromePerseus(config: Config, url: string): Promise<{ items: PerseusItem[]; currency: string } | null> {
@@ -183,6 +249,20 @@ export function createFiverrSource(deps: FiverrDeps): FreelancerSource {
   }
   const readPerseus = deps.readPerseus ?? ((url: string) => chromePerseus(config, url));
   const contact = deps.contact ?? contactOnPage;
+  const googleSearch =
+    deps.googleSearch ??
+    (config.GOOGLE_CSE_KEY && config.GOOGLE_CSE_ID
+      ? async (q: string, s?: AbortSignal) => {
+          try {
+            return await googleCseFiverr(config.GOOGLE_CSE_KEY!, config.GOOGLE_CSE_ID!, q, s);
+          } catch (err) {
+            if (!config.SERPER_API_KEY) throw err;
+            return serperFiverr(config.SERPER_API_KEY, q, s);
+          }
+        }
+      : config.SERPER_API_KEY
+        ? (q: string, s?: AbortSignal) => serperFiverr(config.SERPER_API_KEY!, q, s)
+        : undefined);
 
   function toProfiles(raws: RawListing[], limit: number): FreelancerProfile[] {
     const seen = new Set<string>();
@@ -214,10 +294,27 @@ export function createFiverrSource(deps: FiverrDeps): FreelancerSource {
           gigs.push(...(Array.isArray(payload.gigs) ? (payload.gigs as McpGig[]) : []));
           if (toProfiles(gigs.map(gigToRaw), opts.limit).length >= Math.min(3, opts.limit)) break;
         }
-        return toProfiles(gigs.map(gigToRaw), opts.limit);
+        const found = toProfiles(gigs.map(gigToRaw), opts.limit);
+        // Nothing at all usually means Fiverr blocked this IP (cloud servers): try Google next.
+        if (found.length || !googleSearch) return found;
+        mcpError = new Error('the MCP server found no gigs');
       } catch (err) {
         mcpError = err;
         if (opts.signal?.aborted) throw err;
+      }
+    }
+    if (googleSearch) {
+      try {
+        const listings: RawListing[] = [];
+        for (const phrase of phrases) {
+          listings.push(...(await googleSearch(phrase, opts.signal)));
+          if (toProfiles(listings, opts.limit).length >= Math.min(3, opts.limit)) break;
+        }
+        const found = toProfiles(listings, opts.limit);
+        if (found.length) return found;
+      } catch (err) {
+        if (opts.signal?.aborted) throw err;
+        mcpError = new Error(`${mcpError instanceof Error ? mcpError.message : 'MCP unavailable'}; Google (Serper) failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     for (const phrase of phrases) {
@@ -228,6 +325,11 @@ export function createFiverrSource(deps: FiverrDeps): FreelancerSource {
     }
     if (mcpError) throw new Error(`fiverr: MCP search failed (${mcpError instanceof Error ? mcpError.message : String(mcpError)}) and Chrome is not reachable`);
     throw new Error(`fiverr: no search backend (FIVERR_SEARCH=${config.FIVERR_SEARCH}) and Chrome is not reachable at ${config.CHROME_CDP_URL}`);
+  }
+
+  function previewBooking(request: BookingRequest): string | undefined {
+    if (!config.BROWSER_CONTACT) return undefined;
+    return `On approval HAAS sends this message to ${request.profile.name} on Fiverr:\n"${contactMessage(request.brief, request.priceUsd)}"\nHAAS never orders or pays; you accept their offer.`;
   }
 
   async function book(request: BookingRequest): Promise<BookingResult> {
@@ -266,5 +368,6 @@ export function createFiverrSource(deps: FiverrDeps): FreelancerSource {
     isEnabled: () => config.FIVERR_SEARCH !== 'off',
     search,
     book,
+    previewBooking,
   };
 }

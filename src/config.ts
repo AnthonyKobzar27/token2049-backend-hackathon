@@ -20,7 +20,8 @@ const bool = (def: boolean) =>
 
 const schema = z.object({
   PORT: int(8787),
-  PUBLIC_URL: z.string().default('http://localhost:8787'),
+  /** Public HTTPS address. On Render it defaults to the service's own URL (RENDER_EXTERNAL_URL). */
+  PUBLIC_URL: z.string().default(process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:8787'),
   DB_PATH: z.string().default(join(HAAS_HOME, 'haas.db')),
 
   ANTHROPIC_API_KEY: optional,
@@ -81,6 +82,14 @@ const schema = z.object({
   FIVERR_MCP_ARGS: z.string().default('--with "mcp[cli]<2" fiverr-mcp-server'),
   /** Per-call timeout; the first call may download the server. */
   FIVERR_MCP_TIMEOUT_MS: int(20_000),
+  /**
+   * Google results via Serper (serper.dev, 2,500 free searches, no card) for "site:fiverr.com <terms>".
+   * Used when the MCP server is blocked or finds nothing, e.g. from a cloud server's IP.
+   */
+  SERPER_API_KEY: optional,
+  /** Google Programmable Search (Custom Search JSON API), if you already have a key: closed to new sign-ups since 2025, shut down 2027-01-01. Used before Serper. */
+  GOOGLE_CSE_KEY: optional,
+  GOOGLE_CSE_ID: optional,
 
   /** Upwork GraphQL API: a user token, or an Enterprise app's client credentials. */
   UPWORK_ACCESS_TOKEN: optional,
