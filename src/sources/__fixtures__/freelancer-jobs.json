@@ -1,0 +1,58 @@
+{
+ "status": "success",
+ "result": [
+  {
+   "id": 32,
+   "name": "Logo Design",
+   "category": {
+    "id": 3,
+    "name": "Design, Media & Architecture"
+   },
+   "active_project_count": null,
+   "seo_url": "logo_design",
+   "seo_info": null,
+   "local": false,
+   "questions": null
+  },
+  {
+   "id": 2142,
+   "name": "3D Logo",
+   "category": {
+    "id": 3,
+    "name": "Design, Media & Architecture"
+   },
+   "active_project_count": null,
+   "seo_url": "3d_logo",
+   "seo_info": null,
+   "local": false,
+   "questions": null
+  },
+  {
+   "id": 2342,
+   "name": "Logo Animation",
+   "category": {
+    "id": 3,
+    "name": "Design, Media & Architecture"
+   },
+   "active_project_count": null,
+   "seo_url": "logo_animation",
+   "seo_info": null,
+   "local": false,
+   "questions": null
+  },
+  {
+   "id": 2847,
+   "name": "Midjourney Logo Prompt Writing",
+   "category": {
+    "id": 104,
+    "name": "Artificial Intelligence"
+   },
+   "active_project_count": null,
+   "seo_url": "midjourney_logo_prompt_writing",
+   "seo_info": null,
+   "local": false,
+   "questions": null
+  }
+ ],
+ "request_id": "97636fc38e98371f3a5ae2067bde0e57"
+}

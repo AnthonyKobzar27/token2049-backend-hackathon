@@ -30,7 +30,7 @@ describe('heuristic fallback', () => {
     const scorer = createSuitabilityScorer({ store, config: testConfig({ ANTHROPIC_API_KEY: undefined }) });
     const out = await scorer.score(brief, [prof('a', ['react', 'typescript']), prof('b', ['logo design'])]);
     expect(out.get('t:a')!.score).toBeGreaterThan(out.get('t:b')!.score);
-    expect(out.get('t:a')!.reason).toBe('keyword match');
+    expect(out.get('t:a')!.reason).toBe('matches react, typescript');
     expect(out.get('t:b')!.score).toBe(0);
     expect(m.size).toBe(0);
     expect(heuristicScore(brief, prof('a', ['react'])).score).toBeGreaterThan(0);
@@ -41,12 +41,12 @@ describe('heuristic fallback', () => {
     const scorer = createSuitabilityScorer({ store, config: testConfig() }, async () => { throw new Error('boom'); });
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const out = await scorer.score(brief, [prof('a', ['react'])]);
-    expect(out.get('t:a')!.reason).toBe('keyword match');
+    expect(out.get('t:a')!.reason).toBe('matches react');
   });
 });
 
 describe('llm path', () => {
-  it('batches by 10 with concurrency 3, caches, and only scores uncached profiles', async () => {
+  it('batches by 10, all in parallel, caches, and only scores uncached profiles', async () => {
     const { store, m } = memStore();
     let active = 0;
     let peak = 0;
@@ -63,7 +63,7 @@ describe('llm path', () => {
     const profiles = Array.from({ length: 35 }, (_, i) => prof(`p${i}`, ['react']));
     const out = await scorer.score(brief, profiles);
     expect(sizes.sort()).toEqual([10, 10, 10, 5]);
-    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBe(4);
     expect(out.get('t:p0')).toEqual({ score: 0.7, reason: 'llm' });
     expect(m.size).toBe(35);
 
@@ -86,11 +86,37 @@ describe('llm path', () => {
     const out = await scorer.score(brief, [...bad, ...good]);
     expect(seen).toHaveLength(40);
     expect(seen.every((id) => id.startsWith('t:g'))).toBe(true);
-    expect(out.get('t:b0')!.reason).toBe('keyword match');
+    expect(out.get('t:b0')!.reason).toBe('little overlap with the brief');
     expect(out).toHaveProperty('size', 50);
   });
 
   it('clips reasons to 15 words', () => {
     expect(clipWords('one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen.', 15).split(' ')).toHaveLength(15);
+  });
+});
+
+describe('time budget', () => {
+  it('answers with the heuristic when the model is slower than the budget, and caches the late scores', async () => {
+    const { store, m } = memStore();
+    const llm = async (_b: Brief, batch: FreelancerProfile[]) => {
+      await new Promise((r) => setTimeout(r, 80));
+      return new Map(batch.map((p) => [p.id, { score: 0.95, reason: 'llm' }] as const));
+    };
+    const scorer = createSuitabilityScorer({ store, config: testConfig() }, llm);
+    const t0 = Date.now();
+    const out = await scorer.score(brief, [prof('a', ['react'])], { budgetMs: 10 });
+    expect(Date.now() - t0).toBeLessThan(60);
+    expect(out.get('t:a')!.reason).toBe('matches react');
+    await new Promise((r) => setTimeout(r, 100));
+    expect(m.size).toBe(1);
+    const again = await scorer.score(brief, [prof('a', ['react'])], { budgetMs: 10 });
+    expect(again.get('t:a')).toEqual({ score: 0.95, reason: 'llm' });
+  });
+
+  it('uses model scores that arrive within the budget', async () => {
+    const { store } = memStore();
+    const llm = async (_b: Brief, batch: FreelancerProfile[]) => new Map(batch.map((p) => [p.id, { score: 0.8, reason: 'llm' }] as const));
+    const out = await createSuitabilityScorer({ store, config: testConfig() }, llm).score(brief, [prof('a', ['react'])], { budgetMs: 500 });
+    expect(out.get('t:a')!.reason).toBe('llm');
   });
 });

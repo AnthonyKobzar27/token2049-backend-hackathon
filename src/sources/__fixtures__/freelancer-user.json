@@ -1,0 +1,173 @@
+{
+ "status": "success",
+ "result": {
+  "id": 44921792,
+  "username": "khanma1585",
+  "display_name": "Multilingual Connections",
+  "public_name": "Multilingual Connections",
+  "company": "Multilingual Connections",
+  "tagline": "TRANSLATION / TRANSCRIPTION / PROOFREADING",
+  "profile_description": "At the heart of global connection, we are a team of language and culture experts with years of industry experience. We don’t just translate words—we craft understanding, inspire trust, and build relationships.\n\n✳ Why choose us?\n\n➡ Experts you can trust – Knowledgeable, approachable & responsive\n➡ Ethical & impact-driven – Our values guide every decision\n➡ Global reach – 75+ languages, endless possibilities\n\n✳ What we do?\n\n➡ Translate documents\n➡ Transcribe audio\n➡ Subtitle & voice-over videos\n\nBut more than that, we help you connect, engage & grow your multilingual audience through powerful storytelling & cultural insights.\n\nWe embrace the best of human creativity and cutting-edge technology to transform challenges into opportunities. In a fast-moving industry, we’re always ahead—ready to create innovative solutions tailored just for you.\n\nLet’s break barriers & build connections—together!",
+  "hourly_rate": 20.0,
+  "registration_date": 1585503293,
+  "role": "freelancer",
+  "closed": false,
+  "primary_language": "en",
+  "is_profile_visible": true,
+  "limited_account": false,
+  "location": {
+   "country": {
+    "name": "Germany",
+    "code": "de"
+   },
+   "city": "Göttinegn"
+  },
+  "timezone": {
+   "id": 245,
+   "country": "DE",
+   "timezone": "Europe/Berlin",
+   "offset": 2.0
+  },
+  "primary_currency": {
+   "id": 1,
+   "code": "USD",
+   "sign": "$",
+   "name": "US Dollar",
+   "exchange_rate": 1.0,
+   "country": "US"
+  },
+  "status": {
+   "payment_verified": true,
+   "email_verified": true,
+   "deposit_made": true,
+   "profile_complete": true,
+   "phone_verified": true,
+   "identity_verified": true,
+   "facebook_connected": false,
+   "freelancer_verified_user": false,
+   "linkedin_connected": false,
+   "custom_charge_verified": false
+  },
+  "jobs": [
+   {
+    "id": 22,
+    "name": "Translation",
+    "category": {
+     "id": 2,
+     "name": "Writing & Content"
+    }
+   },
+   {
+    "id": 104,
+    "name": "Editing",
+    "category": {
+     "id": 2,
+     "name": "Writing & Content"
+    }
+   },
+   {
+    "id": 121,
+    "name": "Transcription",
+    "category": {
+     "id": 4,
+     "name": "Data Entry & Admin"
+    }
+   },
+   {
+    "id": 158,
+    "name": "PDF",
+    "category": {
+     "id": 2,
+     "name": "Writing & Content"
+    }
+   },
+   {
+    "id": 197,
+    "name": "Word",
+    "category": {
+     "id": 3,
+     "name": "Design, Media & Architecture"
+    }
+   },
+   {
+    "id": 335,
+    "name": "HTML",
+    "category": {
+     "id": 1,
+     "name": "Websites, IT & Software"
+    }
+   },
+   {
+    "id": 511,
+    "name": "Afrikaans Translator",
+    "category": {
+     "id": 10,
+     "name": "Translation & Languages"
+    }
+   },
+   {
+    "id": 512,
+    "name": "Indonesian Translator",
+    "category": {
+     "id": 10,
+     "name": "Translation & Languages"
+    }
+   },
+   {
+    "id": 513,
+    "name": "Malay Translator",
+    "category": {
+     "id": 10,
+     "name": "Translation & Languages"
+    }
+   },
+   {
+    "id": 514,
+    "name": "Catalan Translator",
+    "category": {
+     "id": 10,
+     "name": "Translation & Languages"
+    }
+   },
+   {
+    "id": 515,
+    "name": "Czech Translator",
+    "category": {
+     "id": 10,
+     "name": "Translation & Languages"
+    }
+   },
+   {
+    "id": 516,
+    "name": "Welsh Translator",
+    "category": {
+     "id": 10,
+     "name": "Translation & Languages"
+    }
+   }
+  ],
+  "reputation": {
+   "entire_history": {
+    "overall": 4.958254029380333,
+    "reviews": 151,
+    "all": 157,
+    "complete": 157,
+    "on_budget": 0.9856551750161264,
+    "on_time": 0.9943008478154491,
+    "completion_rate": 1.0
+   }
+  },
+  "qualifications": [
+   {
+    "id": 533,
+    "name": "Preferred Freelancer Program SLA Exam",
+    "level": 1,
+    "type": "Preferred Freelancer Program SLA",
+    "insignia_type": "exam"
+   }
+  ],
+  "online_offline_status": null,
+  "preferred_freelancer": null,
+  "freelancer_verified_status": null
+ }
+}

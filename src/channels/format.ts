@@ -1,6 +1,6 @@
 // Pure formatting for Telegram (HTML parse mode). Every dynamic string goes through esc().
 
-import type { Approval, Booking, Candidate, EscrowRecord, Job, Shortlist, SourceStatus } from '../domain/types';
+import type { Approval, Booking, Candidate, EscrowRecord, Job, Shortlist, SourceStatus, VerificationReport } from '../domain/types';
 
 export const MAX_MESSAGE = 4096;
 
@@ -57,7 +57,8 @@ export function parseCallback(data: string): Callback | null {
 export function candidateCard(c: Candidate, index: number): string {
   const p = c.profile;
   const lines: string[] = [];
-  lines.push(`<b>${index + 1}. ${esc(p.name)}</b> · ${esc(p.platform)} · score ${Math.round(c.score)}`);
+  const badge = c.identity?.verified ? ` · ✓ verified (${c.identity.by.join(' + ')})` : '';
+  lines.push(`<b>${index + 1}. ${esc(p.name)}</b> · ${esc(p.platform)} · score ${Math.round(c.score)}${badge}`);
   if (p.headline) lines.push(esc(p.headline));
   const facts: string[] = [];
   if (c.quoteUsd !== undefined) facts.push(`quote ${usd(c.quoteUsd)}`);
@@ -110,6 +111,9 @@ const STATUS_TEXT: Partial<Record<Booking['status'], string>> = {
   placed: 'Booked. The freelancer has the order.',
   handoff: 'One step needs you to finish on the platform.',
   delivered: 'The freelancer delivered. Review it; the operator will accept or ask for a revision.',
+  verifying: 'The freelancer delivered. Checking the work before any payment is released.',
+  verified: 'The work passed the quality check. Waiting for the release approval.',
+  rejected: 'The work failed the quality check twice. Nothing is paid; your deposit is being refunded.',
   completed: 'Completed. The escrowed budget is being released.',
   cancelled: 'The booking was cancelled.',
   refunded: 'The booking was cancelled and your deposit is being refunded.',
@@ -130,8 +134,19 @@ export function escrowInstructions(e: EscrowRecord, solanaRpcUrl: string): strin
   const lines = [`<b>Pay into escrow</b>: ${esc(e.amount)} ${esc(e.currency)}`];
   if (e.address) lines.push(`Address:\n<code>${esc(e.address)}</code>`);
   if (solanaRpcUrl.includes('devnet')) lines.push('This is a test setup: switch your wallet to devnet.');
-  lines.push('Scan the QR code with a Solana wallet, or send the amount to the address. I will tell you when it arrives.');
+  if (e.address) lines.push('Scan the QR code with a Solana wallet, or send the amount to the address. I will tell you when it arrives.');
+  else {
+    // On-chain program escrow: the QR is a Solana Pay transaction request the wallet signs.
+    lines.push('Scan the QR code with a Solana wallet and approve the transaction: it locks the amount in the HAAS escrow program. I will tell you when it arrives.');
+    if (e.deadline) lines.push(`If the work is not accepted by ${esc(new Date(e.deadline).toISOString().slice(0, 16).replace('T', ' '))} UTC, the money goes back to you.`);
+  }
   return lines.join('\n');
+}
+
+export function escrowTimeoutLine(kind: 'deposit_expired' | 'delivery_expired', e: EscrowRecord): string {
+  if (kind === 'deposit_expired') return 'The escrow deposit did not arrive in time, so I cancelled the booking.';
+  const text = 'The delivery was not accepted before the escrow deadline, so the budget was returned to you';
+  return e.explorerUrl && e.status === 'refunded' ? `${text}. <a href="${esc(e.explorerUrl)}">View transaction</a>` : `${text}.`;
 }
 
 export function escrowLine(e: EscrowRecord): string | null {
@@ -152,6 +167,21 @@ export function bookingsList(bookings: Booking[]): string {
   return bookings
     .map((b) => `<code>${esc(b.id)}</code> · ${esc(b.status)}${b.paused ? ' · paused' : ''} · ${esc(b.platform)} · ${usd(b.priceUsd)}`)
     .join('\n');
+}
+
+const QA_HEAD: Record<VerificationReport['verdict'], string> = {
+  pass: 'Quality check passed',
+  fail: 'Quality check failed',
+  needs_human: 'Quality check needs a person',
+};
+
+/** The outcome of one QA run (event 'verification.completed'): verdict, score, summary and the failed checks. */
+export function verificationLine(b: Booking, r: VerificationReport): string {
+  const lines = [`<b>Booking ${esc(b.id)}</b>: ${QA_HEAD[r.verdict]} (score ${Math.round(r.score * 100)}/100, attempt ${r.attempt}).`, esc(r.summary)];
+  const failed = r.checks.filter((c) => !c.ok);
+  if (r.verdict !== 'pass') for (const c of failed.slice(0, 5)) lines.push(`• ${esc(c.detail || c.name)}`);
+  if (failed.length > 5) lines.push(`… and ${failed.length - 5} more`);
+  return lines.join('\n');
 }
 
 // ----------------------------------------------------------- chunking

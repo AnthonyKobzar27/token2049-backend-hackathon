@@ -1,0 +1,5 @@
+target/
+.anchor/
+test-ledger/
+# Program keypairs stay out of git (kept in ~/.haas/).
+*-keypair.json

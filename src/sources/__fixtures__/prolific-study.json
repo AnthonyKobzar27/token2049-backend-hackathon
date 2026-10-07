@@ -1,0 +1,14 @@
+{
+  "id": "66f1c0ffee0000000000abcd",
+  "name": "Label 200 product photos as damaged or not",
+  "internal_name": "haas:bk_test",
+  "status": "UNPUBLISHED",
+  "external_study_url": "https://forms.example.com/label?PROLIFIC_PID={{%PROLIFIC_PID%}}&STUDY_ID={{%STUDY_ID%}}&SESSION_ID={{%SESSION_ID%}}",
+  "prolific_id_option": "url_parameters",
+  "estimated_completion_time": 10,
+  "maximum_allowed_time": 30,
+  "reward": 200,
+  "total_available_places": 3,
+  "places_taken": 0,
+  "number_of_submissions": 0
+}

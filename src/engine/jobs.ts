@@ -1,8 +1,20 @@
 import type { Config } from '../config';
+import type { Delegator } from '../delegate/delegate';
 import { assertJobTransition } from '../domain/machine';
 import { newId, now } from '../domain/ids';
 import type { BookingService, EventBus, JobService, Router, Store } from '../domain/ports';
 import type { Booking, Brief, Candidate, Job, JobResult, JobStatus, UserInput } from '../domain/types';
+import { resultPayload } from '../verify/hash';
+
+/**
+ * The verified result the escrow release was bound to. `hash` is the MIP-004 hash of `payload`
+ * (sha256 of "<identifierFromPurchaser>;<payload>"), so a buyer can check it. It sits inside the job
+ * result, so the hash Masumi gets (over the whole /status result) commits to it too.
+ */
+export function verifiedResultOf(booking: Booking): NonNullable<JobResult['verifiedResult']> {
+  const d = booking.delivery;
+  return { hash: booking.resultHash!, payload: resultPayload(booking.id, { text: d?.text, urls: d?.urls, fields: d?.data }) };
+}
 
 export interface JobDeps {
   store: Store;
@@ -10,11 +22,19 @@ export interface JobDeps {
   router: Router;
   bookings: BookingService;
   config: Config;
+  /** Optional AI-first step: tried once per job before the human router. */
+  delegate?: Delegator;
 }
 
 const excludeKey = (jobId: string) => `job:${jobId}:exclude`;
 const feedbackKey = (jobId: string) => `job:${jobId}:feedback`;
+const aiTriedKey = (jobId: string) => `job:${jobId}:ai_tried`;
 const errMsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
+/** A paid Masumi job stops taking a booking this long before its result deadline (the buyer refunds after it). */
+const RESULT_MARGIN_MS = 10 * 60_000;
+/** True once a paid job's result can no longer be submitted in time: booking now would pay a freelancer for a refunded job. */
+const pastResultWindow = (job: Job, t: number): boolean => !!job.payment?.paidAt && t > job.payment.submitResultTime - RESULT_MARGIN_MS;
+const WINDOW_CLOSED = 'The paid result window closed before a freelancer was confirmed; nothing was booked.';
 
 export function createJobService(deps: JobDeps): JobService {
   const { store, bus, router, bookings, config } = deps;
@@ -44,6 +64,21 @@ export function createJobService(deps: JobDeps): JobService {
     try {
       const job = store.getJob(jobId);
       if (!job || job.status !== 'running') return;
+      // Marked before hiring: after a restart mid-hire the job goes to the human router instead of
+      // hiring (and possibly paying) a second agent for the same work.
+      if (deps.delegate && !job.path && store.getKv(aiTriedKey(jobId))) store.updateJob(jobId, { path: 'human' });
+      else if (deps.delegate && !job.path) {
+        store.setKv(aiTriedKey(jobId), String(now()));
+        const ai = await deps.delegate.tryAi(job);
+        const cur = store.getJob(jobId);
+        if (!cur || cur.status !== 'running') return;
+        if (ai.result) {
+          // complete() also carries an x402 settlement into the result, as on the human path.
+          complete(store.updateJob(jobId, { path: 'ai' }), ai.result);
+          return;
+        }
+        store.updateJob(jobId, { path: 'human' });
+      }
       const exclude = readList(excludeKey(jobId));
       const feedback = store.getKv(feedbackKey(jobId)) ?? undefined;
       const { candidates, sources } = await router.route(job.brief, { jobId, limit: config.SHORTLIST_SIZE, exclude, feedback });
@@ -68,7 +103,8 @@ export function createJobService(deps: JobDeps): JobService {
   const routeInBackground = (jobId: string) => void route(jobId);
 
   function complete(job: Job, result: JobResult): Job {
-    return move(job.id, 'completed', { result });
+    const base = { path: job.path ?? 'human', ...result };
+    return move(job.id, 'completed', { result: job.settlement ? { ...base, settlement: job.settlement } : base });
   }
 
   function candidateFor(job: Job, profileId: string): Candidate | undefined {
@@ -79,7 +115,24 @@ export function createJobService(deps: JobDeps): JobService {
   /** Completes a running job whose booking has reached a state that ends it. */
   function settle(job: Job, booking: Booking): Job | null {
     if (job.status !== 'running' || job.bookingId !== booking.id) return null;
-    if (booking.status === 'placed' || booking.status === 'handoff') {
+    // A bounty is the work itself: the job ends with its verified result, not when it is posted.
+    if (booking.platform === 'bounty' && booking.status === 'completed') {
+      const profile = candidateFor(job, booking.profileId)?.profile ?? store.getProfile(booking.profileId);
+      const d = booking.delivery;
+      const summary = d?.summary ?? d?.text ?? `Done by ${profile?.name ?? booking.profileId}.`;
+      return complete(job, {
+        outcome: 'booked',
+        summary,
+        work: { summary, data: d?.data ?? {}, ...(d?.urls?.length && { urls: d.urls }) },
+        freelancer: profile ? { id: profile.id, platform: profile.platform, name: profile.name, url: profile.url, headline: profile.headline } : undefined,
+        priceUsd: booking.priceUsd,
+        bookingId: booking.id,
+        bookingRef: booking.platformRef,
+        bookingUrl: booking.url,
+        ...(booking.resultHash && { verifiedResult: verifiedResultOf(booking) }),
+      });
+    }
+    if (booking.platform !== 'bounty' && (booking.status === 'placed' || booking.status === 'handoff')) {
       const profile = candidateFor(job, booking.profileId)?.profile ?? store.getProfile(booking.profileId);
       const booked = booking.status === 'placed';
       const name = profile?.name ?? booking.profileId;
@@ -95,8 +148,8 @@ export function createJobService(deps: JobDeps): JobService {
         bookingUrl: booking.url,
       });
     }
-    if (booking.status === 'cancelled' || booking.status === 'refunded') {
-      return complete(job, { outcome: 'no_booking', summary: `Booking ended (${booking.status})${booking.note ? `: ${booking.note}` : ''}.`, bookingId: booking.id });
+    if (booking.status === 'cancelled' || booking.status === 'refunded' || booking.status === 'rejected') {
+      return complete(job, { outcome: 'no_booking', summary: `Booking ended (${booking.status})${booking.note ? `: ${booking.note.replace(/\.+$/, '')}` : ''}.`, bookingId: booking.id });
     }
     return null;
   }
@@ -151,6 +204,10 @@ export function createJobService(deps: JobDeps): JobService {
       }
 
       if (input.action === 'confirm') {
+        if (pastResultWindow(job, now())) {
+          complete(job, { outcome: 'no_booking', summary: WINDOW_CLOSED });
+          throw new Error('the paid job\'s result window has closed; nothing was booked');
+        }
         const candidate = candidateFor(job, input.profileId);
         if (!candidate) throw new Error(`Profile ${input.profileId} is not on the latest shortlist of job ${jobId}`);
         const booking = bookings.create(job, candidate);
@@ -189,7 +246,8 @@ export function createJobService(deps: JobDeps): JobService {
       }
       for (const job of store.listJobs({ status: 'awaiting_input' })) {
         try {
-          if (t - job.updatedAt > timeoutMs) complete(job, { outcome: 'no_booking', summary: 'The check-in expired without an answer.' });
+          if (pastResultWindow(job, t)) complete(job, { outcome: 'no_booking', summary: WINDOW_CLOSED });
+          else if (t - job.updatedAt > timeoutMs) complete(job, { outcome: 'no_booking', summary: 'The check-in expired without an answer.' });
         } catch (err) {
           console.error(`[jobs] tick failed for ${job.id}:`, err);
         }

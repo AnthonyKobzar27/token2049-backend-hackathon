@@ -39,3 +39,31 @@ describe('policy', () => {
     expect(p.requiresApproval('routine_message', 'bk_1')).toBe(false);
   });
 });
+
+describe('policy: QA autonomy', () => {
+  const qa = (verdict: 'pass' | 'fail', by: 'llm' | 'human' = 'llm') =>
+    ({ verdict, score: 1, checks: [{ name: 'c', ok: verdict === 'pass', detail: '', by }], summary: '', resultHash: 'h', deliveryHash: 'd', attempt: 1, ms: 1, at: 1 }) as Booking['verification'];
+
+  it('auto-releases a passed booking only under AUTO_RELEASE_MAX_USD and while not paused', () => {
+    const { store, booking } = fakeBookingStore({ status: 'verified', priceUsd: 20, verification: qa('pass') });
+    const on = createPolicy({ store, config: testConfig({ AUTO_RELEASE_MAX_USD: 25 }) });
+    expect(on.requiresApproval('accept', 'bk_1')).toBe(false);
+    booking.priceUsd = 30;
+    expect(on.requiresApproval('accept', 'bk_1')).toBe(true);
+    booking.priceUsd = 20;
+    on.pause('bk_1');
+    expect(on.requiresApproval('accept', 'bk_1')).toBe(true);
+    const off = createPolicy({ store: fakeBookingStore({ status: 'verified', priceUsd: 20, verification: qa('pass') }).store, config: testConfig() });
+    expect(off.requiresApproval('accept', 'bk_1')).toBe(true);
+    const failed = createPolicy({ store: fakeBookingStore({ status: 'verified', priceUsd: 1, verification: qa('fail') }).store, config: testConfig({ AUTO_RELEASE_MAX_USD: 25 }) });
+    expect(failed.requiresApproval('accept', 'bk_1')).toBe(true);
+  });
+
+  it('auto-requests the QA revision only for an automatic failure', () => {
+    const p = (b: Partial<Booking>, o = {}) => createPolicy({ store: fakeBookingStore(b).store, config: testConfig(o) });
+    expect(p({ status: 'verifying', verification: qa('fail') }).requiresApproval('revise', 'bk_1')).toBe(false);
+    expect(p({ status: 'verifying', verification: qa('fail') }, { AUTO_QA_REVISION: false }).requiresApproval('revise', 'bk_1')).toBe(true);
+    expect(p({ status: 'verified', verification: qa('fail', 'human') }).requiresApproval('revise', 'bk_1')).toBe(true);
+    expect(p({ status: 'delivered' }).requiresApproval('revise', 'bk_1')).toBe(true);
+  });
+});

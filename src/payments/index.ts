@@ -1,45 +1,16 @@
-// Escrow provider selection. The memory provider is real (it just holds no
-// actual funds): deposits are instant, release and refund only move status.
-// The Solana provider is not written yet; selecting it falls back with a warning.
-
 import type { Config } from '../config';
-import { newId, now } from '../domain/ids';
 import type { EscrowProvider, Store } from '../domain/ports';
-import type { EscrowRecord } from '../domain/types';
+import { createMemoryEscrow } from './memory';
+import { createSolanaEscrow } from './solana';
+import { createSolanaProgramEscrow } from './solana-program';
 
 export function createEscrowProvider(deps: { store: Store; config: Config }): EscrowProvider {
-  if (deps.config.ESCROW_PROVIDER === 'solana') {
-    console.warn('[escrow] solana provider is not implemented yet; using the memory provider');
-  }
-  return createMemoryEscrow();
-}
-
-function createMemoryEscrow(): EscrowProvider {
-  return {
-    name: 'memory',
-    currency: 'USD',
-    async create({ bookingId, amountUsd }) {
-      const t = now();
-      const escrow: EscrowRecord = {
-        id: newId('esc'),
-        bookingId,
-        provider: 'memory',
-        status: 'funded',
-        amount: amountUsd,
-        currency: 'USD',
-        createdAt: t,
-        updatedAt: t,
-      };
-      return escrow;
-    },
-    async refresh(escrow) {
-      return escrow;
-    },
-    async release(escrow) {
-      return { ...escrow, status: 'released', updatedAt: now() };
-    },
-    async refund(escrow) {
-      return { ...escrow, status: 'refunded', updatedAt: now() };
-    },
-  };
+  const { config } = deps;
+  const kind = config.ESCROW_PROVIDER;
+  if (kind === 'memory') return createMemoryEscrow();
+  if (!config.SOLANA_OPERATOR_SECRET) throw new Error(`ESCROW_PROVIDER=${kind} needs SOLANA_OPERATOR_SECRET (base58 secret key of the operator wallet)`);
+  // On-chain program escrow: the hirer's funds sit in a program-owned PDA with a refund deadline.
+  if (kind === 'solana-program') return createSolanaProgramEscrow(config);
+  // 'solana-vault' and legacy 'solana': server-held vault wallet, kept as a fallback.
+  return createSolanaEscrow(config);
 }

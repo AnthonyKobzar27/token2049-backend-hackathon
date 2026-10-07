@@ -1,14 +1,18 @@
 // How well does each freelancer fit the job? LLM-scored in batches, cached per (brief, profile),
-// with a deterministic keyword heuristic as the fallback. Never throws.
+// with a deterministic TF-IDF heuristic (relevance.ts) as the fallback. Never throws.
+// With a time budget, batches still out when it ends keep the heuristic for this round
+// and are cached when they land, so the next round has them.
 
 import { createHash } from 'node:crypto';
 import type { Config } from '../config';
 import type { Store, SuitabilityScorer } from '../domain/ports';
 import type { Brief, FreelancerProfile, SuitabilityScore } from '../domain/types';
 import { anthropic, hasLlm } from '../llm/client';
+import { relevanceScores } from './relevance';
 
 const BATCH_SIZE = 10;
-const CONCURRENCY = 3;
+/** All batches of the capped set run at once: LLM_CAP / BATCH_SIZE. */
+const CONCURRENCY = 4;
 const LLM_CAP = 40;
 
 /** Scores one batch; returns a map by profile id. May throw: the caller falls back to the heuristic. */
@@ -23,30 +27,8 @@ export function briefKey(brief: Brief): string {
 
 // -------------------------------------------------------------- heuristic
 
-const STOP = new Set(['the', 'and', 'for', 'with', 'need', 'needs', 'want', 'who', 'that', 'this', 'can', 'will', 'has', 'have', 'from', 'into', 'about', 'some', 'our', 'your', 'you', 'are', 'any', 'per', 'job', 'work', 'someone', 'looking', 'hire']);
-const tokens = (text: string): Set<string> => {
-  const out = new Set<string>();
-  for (const raw of text.toLowerCase().split(/[^\p{L}\p{N}+#]+/u)) {
-    if (raw.length < 3 || STOP.has(raw)) continue;
-    out.add(raw.length > 4 && raw.endsWith('s') ? raw.slice(0, -1) : raw);
-  }
-  return out;
-};
-
-/** Keyword overlap between the brief and the profile's skills, headline and category, as 0-1. */
-export function keywordScore(brief: Brief, profile: FreelancerProfile): number {
-  const want = tokens(`${brief.task} ${brief.skills.join(' ')}`);
-  if (want.size === 0) return 0;
-  const have = tokens(`${profile.skills.join(' ')} ${profile.headline} ${profile.category ?? ''}`);
-  let hit = 0;
-  for (const w of want) if (have.has(w)) hit++;
-  return Math.min(1, (hit / want.size) * 2.5);
-}
-
-export const heuristicScore = (brief: Brief, profile: FreelancerProfile): SuitabilityScore => ({
-  score: Math.round(keywordScore(brief, profile) * 100) / 100,
-  reason: 'keyword match',
-});
+/** One profile scored on its own (IDF over a set of one). The scorer itself uses the whole set. */
+export const heuristicScore = (brief: Brief, profile: FreelancerProfile): SuitabilityScore => relevanceScores(brief, [profile]).get(profile.id)!;
 
 // -------------------------------------------------------------------- llm
 
@@ -149,7 +131,7 @@ export function createSuitabilityScorer(deps: { store: Store; config: Config }, 
   const llm: BatchScorer | undefined = score ?? (hasLlm(config) ? createLlmBatchScorer(config) : undefined);
 
   return {
-    async score(brief, profiles) {
+    async score(brief, profiles, opts) {
       const result = new Map<string, SuitabilityScore>();
       const key = briefKey(brief);
       const todo: FreelancerProfile[] = [];
@@ -165,32 +147,43 @@ export function createSuitabilityScorer(deps: { store: Store; config: Config }, 
       }
       if (todo.length === 0) return result;
 
-      const heuristic = new Map(todo.map((p) => [p.id, heuristicScore(brief, p)] as const));
+      const heuristic = relevanceScores(brief, todo);
       let forLlm: FreelancerProfile[] = [];
       if (llm) forLlm = todo.length > LLM_CAP ? [...todo].sort((a, b) => heuristic.get(b.id)!.score - heuristic.get(a.id)!.score).slice(0, LLM_CAP) : todo;
 
       const batches: FreelancerProfile[][] = [];
       for (let i = 0; i < forLlm.length; i += BATCH_SIZE) batches.push(forLlm.slice(i, i + BATCH_SIZE));
       const scored = new Map<string, SuitabilityScore>();
-      if (llm) {
-        await pool(batches, CONCURRENCY, async (batch) => {
-          try {
-            for (const [id, s] of await llm(brief, batch)) scored.set(id, s);
-          } catch (err) {
-            console.error('[suitability] batch failed, using keyword heuristic:', err instanceof Error ? err.message : err);
-          }
-        });
-      }
-      for (const [id, s] of scored) {
-        result.set(id, s);
+      const save = (id: string, s: SuitabilityScore): void => {
         try {
           store.putSuitability(key, id, s);
         } catch {
           // cache write is best effort
         }
+      };
+      let open = true;
+      if (llm && batches.length > 0) {
+        const work = pool(batches, CONCURRENCY, async (batch) => {
+          try {
+            for (const [id, s] of await llm(brief, batch)) {
+              save(id, s);
+              if (open) scored.set(id, s);
+            }
+          } catch (err) {
+            console.error('[suitability] batch failed, using keyword heuristic:', err instanceof Error ? err.message : err);
+          }
+        });
+        const budget = opts?.budgetMs;
+        if (budget !== undefined && Number.isFinite(budget)) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([work, new Promise<void>((r) => { timer = setTimeout(r, Math.max(0, budget)); })]);
+          clearTimeout(timer);
+        } else await work;
+        open = false;
       }
+      for (const [id, s] of scored) result.set(id, s);
       // Everything the model did not score gets the heuristic (not cached, so a later run can do better).
-      for (const p of todo) if (!result.has(p.id)) result.set(p.id, heuristic.get(p.id)!);
+      for (const p of todo) if (!result.has(p.id)) result.set(p.id, heuristic.get(p.id) ?? { score: 0, reason: 'little overlap with the brief' });
       return result;
     },
   };
