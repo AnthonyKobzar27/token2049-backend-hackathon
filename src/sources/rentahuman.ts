@@ -213,9 +213,13 @@ export function searchPlan(brief: Brief): { steps: Record<string, string | numbe
   const city = place.city?.toLowerCase();
   const isLocal = (h: RawHuman): boolean => {
     if (!onSite || (!place.city && !place.country)) return true;
-    const hc = h.location?.city?.trim().toLowerCase();
     if (place.country && h.location?.country?.toUpperCase() === place.country) return true;
-    return !!(city && hc && hc === city);
+    if (!city) return false;
+    // The parsed place may be a region ("Berkeley, California" parses to California), so the
+    // human's state counts as much as their city.
+    const hc = h.location?.city?.trim().toLowerCase();
+    const hs = h.location?.state?.trim().toLowerCase();
+    return hc === city || hs === city;
   };
   return { steps: unique, isLocal };
 }

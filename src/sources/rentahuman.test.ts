@@ -241,6 +241,19 @@ describe('rentahuman search widening', () => {
     expect(calls).toHaveLength(MAX_SEARCH_REQUESTS);
   });
 
+  it('counts a human as local when the parsed place is their state ("Berkeley, California")', async () => {
+    const berkeley = { task: 'Film an agentic AI robotics demo in Berkeley, about an hour', skills: ['Python', 'Agentic AI', 'robotics'], location: 'Berkeley, California', remoteOk: false, budgetUsd: 10 };
+    // placeOf cannot tell Berkeley from the state, so it parses to {city: 'California'}.
+    expect(placeOf('Berkeley, California')).toEqual({ city: 'California', country: undefined });
+    const anthony: RawHuman = { id: 'anthony', name: 'Anthony', skills: ['Python', 'Agentic AI'], location: { city: 'Berkeley', state: 'California', country: 'US' }, hourlyRate: 7.25 };
+    // The first (skill) step finds him; a later, wider step fills up with people whose profile city
+    // is literally "California". He must not be starved out as non-local.
+    stubHumans((q, i) => (i === 0 ? [anthony] : q.skill ? [] : Array.from({ length: 12 }, (_, j) => person(`ca${j}`, 'California', 'US'))));
+    const res = await createRentAHumanSource(testConfig()).search(berkeley, { limit: 10 });
+    expect(res.map((p) => p.platformId)).toContain('anthony');
+    expect(res[0]!.platformId).toBe('anthony');
+  });
+
   it('skips a failing step but throws when every step failed and nothing was found', async () => {
     stubHumans((_q, i) => (i === 0 ? 500 : [person('sg', 'Singapore', 'SG')]));
     expect((await createRentAHumanSource(testConfig()).search(queue, { limit: 1 })).map((p) => p.platformId)).toEqual(['sg']);
