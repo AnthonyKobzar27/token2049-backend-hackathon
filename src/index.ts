@@ -81,7 +81,7 @@ const escrow = createEscrowProvider({ store, config });
 const bookings = createBookingService({ store, bus, registry, escrow, gate, config });
 const delegate = createDelegator({ config, bus, classifier: createClassifier({ config }), buyer: createBuyer(config) });
 const jobs = createJobService({ store, bus, router, bookings, config, delegate });
-if (config.AI_DELEGATION !== 'off' && !config.AI_AGENT_URL && !config.MASUMI_REGISTRY_URL) {
+if (!config.AI_AGENT_URL && !config.MASUMI_REGISTRY_URL) {
   console.warn(
     '[delegate] AI-FIRST HAS NO AGENT SOURCE: every job goes straight to humans.\n' +
     "[delegate] Set AI_AGENT_URL (a MIP-003 agent's base URL, e.g. pnpm demo:agent on :8790) or MASUMI_REGISTRY_URL to hire fellow agents first.",
@@ -142,7 +142,7 @@ const server = app.listen(config.PORT, () => {
   console.log(`[haas] listening on http://localhost:${config.PORT} (public URL: ${config.PUBLIC_URL})`);
   console.log(`[haas] sources: ${registry.enabled().map((s) => s.name).join(', ') || 'none enabled'}`);
   if (config.DEMO_MODE) console.log(`[haas] demo mode: pinned cache, ${config.DEMO_BUDGET_MS} ms budget (warm it with pnpm demo:warm)`);
-  console.log(`[haas] AI-first: ${config.AI_DELEGATION}; agent: ${config.AI_AGENT_URL ?? (config.MASUMI_REGISTRY_URL ? 'registry search' : 'none')}`);
+  console.log(`[haas] AI-first: always (write "human only" to skip agents); agent: ${config.AI_AGENT_URL ?? (config.MASUMI_REGISTRY_URL ? 'registry search' : 'none')}`);
   console.log(`[haas] escrow: ${escrow.name}; masumi payments: ${config.MASUMI_API_KEY ? (config.MASUMI_AGENT_IDENTIFIER ? 'on' : 'partial (set MASUMI_AGENT_IDENTIFIER)') : 'off'}; x402: ${config.X402_PAY_TO || config.X402_SOLANA_PAY_TO ? 'on' : 'off'}; identity: ${identity ? config.CARDANO_NETWORK : 'off'}`);
   // After listen: KERIA resolves the schema OOBI from this server.
   veridian?.issuer

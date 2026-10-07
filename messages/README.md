@@ -14,9 +14,10 @@ client of its REST + SSE API (`src/api/dashboard.ts`).
    their name (registration, stored in the bridge's own SQLite DB).
 2. **One clarifying question** — budget, deadline, location (or `SKIP`).
 3. **A job is created in the core**, tagged `imessage:<handle>`. The core
-   tries **Masumi AI agents first** (`AI_DELEGATION=auto`: classify the brief,
-   hire an AI agent if one fits) and falls back to **hiring humans** across
-   every freelancer source.
+   tries **Masumi AI agents first** (always: classify the brief, hire an AI
+   agent if one fits; a sender gets a person directly only by asking, e.g.
+   "human only") and falls back to **hiring humans** across every freelancer
+   source.
 4. **Notifications are routed per requester**: each person is texted their own
    shortlist (`HIRE 1`, `REFINE …`, `CANCEL`, `STATUS`), escrow and result
    updates. **Approvals and anything unattributable always go to the

@@ -25,7 +25,7 @@ Everything here needs a person, an account, a wallet or an approval. No agent ca
 1. [ ] **Run one live paid Cardano Task.** This is the Cardano track's required proof: a Preprod collection transaction paying the seller in test USDM through your own Masumi Payment Service. Start it **at least 2 hours before the deadline**; the unlock and collection wait alone is about 60 minutes. Steps: section 2.14 and `docs/LIVE_CARDANO_PAYMENT.md`.
 2. [ ] **Start the Masumi Payment Service (MPS).** Its docker compose has never been run, so leave time for fixes. Steps: "The Masumi payment service" in section 1. Fallback: runbook §5, option B.
 3. [ ] **Deploy the Solana escrow program to devnet**, or demo with `ESCROW_PROVIDER=memory` and say so. `SOLANA_ESCROW_PROGRAM_ID` is a placeholder until you run `anchor deploy` and `pnpm spike:solana`. Steps: section 2.8 and `programs/haas-escrow/README.md`.
-4. [ ] **Pick one real Masumi AI agent** for the "try an AI agent first" path and set `AI_AGENT_URL`. If you don't, set `AI_DELEGATION=human` so the demo stays on the human path. Steps: section 2.5.
+4. [ ] **Pick one real Masumi AI agent** for the "try an AI agent first" path and set `AI_AGENT_URL`. If you don't, physical briefs stay on the human path automatically; pin `AI_AGENT_URL` to show the AI path. Steps: section 2.5.
 5. [ ] **Configure Telegram before the demo** (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_OPERATOR_ID`). Without it every approval (book, accept, release) is granted automatically. Steps: section 2.2.
 
 ### B. Accounts and keys to get
@@ -250,7 +250,7 @@ JOB=$(jq -r .job_id /tmp/start.json)
 
 **What it does.** Before searching for humans, HAAS asks itself "can an AI agent do this?"
 
-- `AI_DELEGATION=auto` (default): the LLM labels the brief, or keywords decide without a key. `ai` / `human` force a path; `off` disables the step.
+- Always on: the LLM labels the brief, or keywords decide without a key. The only way a requester skips agents is by explicitly asking for a person in the text (e.g. "human only", "I want a real person").
 - It needs an agent: `AI_AGENT_URL` or `MASUMI_REGISTRY_URL`. With neither, the step is skipped (boot log `agent: none`).
 
 **Test it.**
@@ -699,7 +699,7 @@ curl -s -X POST localhost:8787/provide_input -H 'content-type: application/json'
 1. **No live paid Task yet.** This is the Cardano track's proof. Start it at least 2 hours before the deadline: the unlock and collection wait alone is about 60 min.
 2. **Escrow program not deployed.** `SOLANA_ESCROW_PROGRAM_ID` is a placeholder. Someone must run `anchor deploy` on devnet and `pnpm spike:solana` before the Solana part of the demo is real. Until then, demo with `ESCROW_PROVIDER=memory` and say so.
 3. **MPS docker compose never run.** Allow time to fix it, or use runbook §5 option B.
-4. **No real AI agent chosen** for the AI path. Pin one with `AI_AGENT_URL` and test it, or set `AI_DELEGATION=human` to keep the demo on the human path.
+4. **No real AI agent chosen** for the AI path. Pin one with `AI_AGENT_URL` and test it; without one, every job falls through to the human path (physical briefs stay there regardless).
 5. **Bounty payouts are ledger entries.** No ADA or USDC moves to the worker. When a worker's Solana wallet is the escrow payee, the escrow release itself pays them.
 6. **Headless auto-approval.** Without Telegram keys, every approval (book, accept) is granted automatically. Fine for rehearsals; say so if you demo without the bot.
 7. **Telegram, the LLM paths and the x402 paywall have not been run against live services.** The README says the same.

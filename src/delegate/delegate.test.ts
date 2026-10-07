@@ -122,7 +122,7 @@ describe('AI-first delegation in the job lifecycle', () => {
     expect(progress()).toContain('The AI agent ran out of time; finding a human instead…');
   });
 
-  it('skips the AI step when no agent is configured, and AI_DELEGATION=ai forces the attempt', async () => {
+  it('skips the AI step when no agent is configured, and attempts it as soon as one is', async () => {
     const none = setup({});
     const j1 = none.jobs.startJob({ brief: digital, client: 'local' });
     await settled(none.store, j1.id, 'awaiting_input');
@@ -130,16 +130,21 @@ describe('AI-first delegation in the job lifecycle', () => {
     expect(none.progress().some((m) => m.includes('AI agent'))).toBe(false);
 
     const seller = track(await fakeSeller());
-    const forced = setup({ AI_AGENT_URL: seller.url, AI_DELEGATION: 'ai' });
-    const j2 = forced.jobs.startJob({ brief: physical, client: 'local' });
-    await settled(forced.store, j2.id, 'completed');
-    expect(forced.store.getJob(j2.id)?.result?.path).toBe('ai');
+    const withAgent = setup({ AI_AGENT_URL: seller.url });
+    const j2 = withAgent.jobs.startJob({ brief: digital, client: 'local' });
+    await settled(withAgent.store, j2.id, 'completed');
+    expect(withAgent.store.getJob(j2.id)?.result?.path).toBe('ai');
   });
 
-  it('records the human path on results of routed jobs', async () => {
-    const { store, jobs } = setup({ AI_DELEGATION: 'human' });
-    const job = jobs.startJob({ brief: digital, client: 'local' });
+  it('skips agents when the requester explicitly asks for a human, and records the human path', async () => {
+    const seller = track(await fakeSeller());
+    const { store, jobs, progress } = setup({ AI_AGENT_URL: seller.url });
+    const explicit: Brief = { task: 'I want a real human for this translation', skills: [], remoteOk: true };
+    const job = jobs.startJob({ brief: explicit, client: 'local' });
     await settled(store, job.id, 'awaiting_input');
+    expect(store.getJob(job.id)?.path).toBe('human');
+    expect(seller.log).toHaveLength(0);
+    expect(progress().some((m) => m.includes('The requester asked for a human ("a real human")'))).toBe(true);
     const done = jobs.provideInput(job.id, { action: 'cancel' });
     expect(done.result).toMatchObject({ outcome: 'no_booking', path: 'human' });
   });

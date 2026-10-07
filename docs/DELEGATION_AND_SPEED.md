@@ -15,7 +15,7 @@ buyer ──pays──> HAAS ┤
                                    └─ bounty board (RentAHuman bounty, handed off to the operator)
 ```
 
-Today the repo has both. (b) is the default path. (a) is AI-first delegation: a classifier decides "AI or human", and when `AI_AGENT_URL` or `MASUMI_REGISTRY_URL` is set, `src/delegate/delegate.ts` hires a MIP-003 agent through `src/masumi/buyer.ts` (registry lookup, `start_job`, purchase through our MPS, status polling, MIP-004 hash check). On any failure, or with no agent configured, the job falls back to the human router.
+Today the repo has both. (a) always runs first: a classifier decides "AI or human" for every brief — the only way a requester skips agents is by explicitly asking for a person in the text (e.g. "human only", "I want a real person"). When `AI_AGENT_URL` or `MASUMI_REGISTRY_URL` is set, `src/delegate/delegate.ts` hires a MIP-003 agent through `src/masumi/buyer.ts` (registry lookup, `start_job`, purchase through our MPS, status polling, MIP-004 hash check). On any failure, or with no agent configured, the job falls back to the human router.
 
 ## 2. (a) Delegating to another AI agent on Masumi
 

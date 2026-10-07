@@ -234,8 +234,8 @@ const schema = z.object({
 
   REQUIRE_APPROVAL_FOR_ROUTINE_MESSAGES: bool(false),
 
-  /** AI-first delegation: auto (classify), ai (always try an agent first), human (skip agents), off. */
-  AI_DELEGATION: z.enum(['auto', 'ai', 'human', 'off']).default('auto'),
+  // AI-first delegation is always on: every brief is classified "can an AI agent do it?" first.
+  // The requester skips agents only by explicitly asking for a human in the text (e.g. "human only").
   /** Hard ceiling on the whole AI attempt before falling through to the human router. */
   AI_TIME_BUDGET_MS: int(60_000),
   AI_CLASSIFY_TIMEOUT_MS: int(1_800),

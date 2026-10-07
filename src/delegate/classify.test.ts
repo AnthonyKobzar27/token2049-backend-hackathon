@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { testConfig } from '../config';
 import type { Brief } from '../domain/types';
-import { createClassifier, keywordClassify } from './classify';
+import { createClassifier, explicitHumanRequest, keywordClassify } from './classify';
 
 const b = (task: string, extra: Partial<Brief> = {}): Brief => ({ task, skills: [], remoteOk: true, ...extra });
 
@@ -27,14 +27,54 @@ describe('keywordClassify', () => {
 
 const toolReply = (input: unknown) => ({ content: [{ type: 'tool_use', id: 't', name: 'label_work', input }] });
 
+describe('explicitHumanRequest', () => {
+  it.each([
+    ['I want a real person to review my resume', 'a real person'],
+    ['humans only for this one', 'humans only'],
+    ['no AI please', 'no ai'],
+    ['no bots', 'no bots'],
+    ['definitely not a bot', 'not a bot'],
+    ['I would prefer a human', 'prefer a human'],
+    ['get me a human for this', 'get me a human'],
+    ['this must be done by a human', 'by a human'],
+    ['I need feedback from a human', 'from a human'],
+    ['find a human to edit this', 'a human to'],
+  ])('matches "%s"', (text, phrase) => expect(explicitHumanRequest(text)).toBe(phrase));
+
+  it.each([
+    'find someone to summarise this report',
+    'write an essay about humanity',
+    'help someone fix my spreadsheet',
+    'repair my air conditioner listing copy',
+  ])('does not match "%s"', (text) => expect(explicitHumanRequest(text)).toBeNull());
+});
+
 describe('createClassifier', () => {
-  it('honours the env override without calling the model', async () => {
+  it('routes an explicit human request to a human without calling the model', async () => {
     const create = vi.fn();
-    const ai = createClassifier({ config: testConfig({ AI_DELEGATION: 'ai' }), messages: { create } as never });
-    expect((await ai.classify(b('Call my mum'))).kind).toBe('digital');
-    const human = createClassifier({ config: testConfig({ AI_DELEGATION: 'human' }), messages: { create } as never });
-    expect((await human.classify(b('Write a blog post'))).kind).toBe('human');
+    const c = createClassifier({ config: testConfig(), messages: { create } as never });
+    const r = await c.classify(b('I want a real person to review my resume'));
+    expect(r).toMatchObject({ kind: 'human', via: 'override', confidence: 1 });
+    expect(r.reason).toBe('The requester asked for a human ("a real person").');
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it('lets an explicit human request beat digital keywords', async () => {
+    const c = createClassifier({ config: testConfig({ ANTHROPIC_API_KEY: undefined }) });
+    // "write" is a DIGITAL keyword; the explicit request wins anyway.
+    const r = await c.classify(b('no AI please, need a human to write my wedding speech'));
+    expect(r).toMatchObject({ kind: 'human', via: 'override', confidence: 1 });
+    expect(r.reason).toContain('no ai');
+  });
+
+  it('does not treat a generic "someone" as a human request', async () => {
+    const c = createClassifier({ config: testConfig({ ANTHROPIC_API_KEY: undefined }) });
+    expect(await c.classify(b('find someone to summarise this report'))).toMatchObject({ kind: 'digital', via: 'keywords' });
+  });
+
+  it('keeps plain digital work digital', async () => {
+    const c = createClassifier({ config: testConfig({ ANTHROPIC_API_KEY: undefined }) });
+    expect((await c.classify(b('translate my blog post'))).kind).toBe('digital');
   });
 
   it('uses the model label and caches by brief', async () => {

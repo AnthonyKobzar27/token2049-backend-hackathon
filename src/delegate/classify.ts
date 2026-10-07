@@ -29,6 +29,38 @@ Label the request "digital" when an AI agent working only with text and the inte
 Label it "human" when it needs a person: phone calls, anything in person or on site, physical errands or deliveries, handling physical objects, signing or legally binding acts, work on platforms that require a human account, or taste and judgment the requester clearly wants from a person (e.g. a professional designer, a lawyer, a tutor).
 When unsure, choose "human". Answer only by calling the tool.`;
 
+// The requester explicitly asked for a person. Kept tight (word-boundary phrases) so that
+// generic words like "someone" never match. Any hit skips the AI path entirely.
+const EXPLICIT_HUMAN = [
+  /\ba real person\b/,
+  /\ban actual person\b/,
+  /\ba real human\b/,
+  /\bhumans? only\b/,
+  /\bno ai\b/,
+  /\bno bots?\b/,
+  /\bno agents?\b/,
+  /\bnot a bot\b/,
+  /\bnot an ai\b/,
+  /\bprefer a human\b/,
+  /\bwant a human\b/,
+  /\bneed a human\b/,
+  /\bhire a human\b/,
+  /\bget me a human\b/,
+  /\bby a human\b/,
+  /\bfrom a human\b/,
+  /\ba human to\b/,
+];
+
+/** The phrase with which the requester explicitly asked for a person, or null. */
+export function explicitHumanRequest(text: string): string | null {
+  const t = text.toLowerCase();
+  for (const r of EXPLICIT_HUMAN) {
+    const m = t.match(r);
+    if (m) return m[0];
+  }
+  return null;
+}
+
 // Physical, in-person or person-gated work. Checked first: any hit means human.
 const HUMAN = [
   /\b(phone|call|calls|calling|ring|voice ?mail)\b/,
@@ -135,9 +167,9 @@ export function createClassifier(deps: { config: Config; messages?: Messages; no
   return {
     async classify(brief) {
       const start = now();
-      const mode = config.AI_DELEGATION;
-      if (mode === 'ai') return { kind: 'digital', reason: 'Forced by AI_DELEGATION=ai.', confidence: 1, via: 'override', ms: 0 };
-      if (mode === 'human' || mode === 'off') return { kind: 'human', reason: `Forced by AI_DELEGATION=${mode}.`, confidence: 1, via: 'override', ms: 0 };
+      // The only way around agents-first: the requester explicitly asked for a person.
+      const asked = explicitHumanRequest(`${brief.task} ${brief.notes ?? ''}`);
+      if (asked) return { kind: 'human', reason: `The requester asked for a human ("${asked}").`, confidence: 1, via: 'override', ms: 0 };
       const key = briefKey(brief);
       let p = cache.get(key);
       if (!p) {
