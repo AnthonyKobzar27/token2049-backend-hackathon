@@ -32,10 +32,10 @@ ENV NODE_ENV=production \
     PORT=8787 \
     FIVERR_SEARCH=mcp \
     FIVERR_MCP_COMMAND=fiverr-mcp-server \
-    FIVERR_MCP_ARGS= \
+    FIVERR_MCP_ARGS="" \
     BROWSER_SOURCES=false \
     BROWSER_CONTACT=false
-VOLUME /data
+# Persistent data: attach a Railway volume (or docker -v) at /data.
 EXPOSE 8787
 # The slim image has no curl; node's own fetch probes /health.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
