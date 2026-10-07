@@ -49,6 +49,8 @@ interface Ctx {
 }
 
 const ctxKey = (id: string) => `booking:${id}:ctx`;
+/** Set once a person approved the booking before HAAS funded its escrow (ESCROW_AUTO_FUND). */
+const approvedKey = (id: string) => `booking:${id}:approved`;
 /** Result hash the release is bound to, kept so a failed release is retried with it. */
 const resultKey = (id: string) => `booking:${id}:result`;
 const deliveryKey = (id: string) => `booking:${id}:delivery`;
@@ -168,7 +170,8 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
 
       let approved: boolean;
       let note: string | undefined;
-      try {
+      if (store.getKv(approvedKey(id))) approved = true;
+      else try {
         const res = await gate.request({
           action: 'book',
           jobId: booking.jobId,
@@ -208,6 +211,39 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
       }
     } finally {
       busy.delete(id);
+    }
+  }
+
+  /**
+   * HAAS-funded escrow: ask for the booking approval first, and only then lock the money and book.
+   * A denial cancels the booking before anything is paid or sent.
+   */
+  async function approveThenBegin(booking: Booking, brief: Brief): Promise<void> {
+    try {
+      const ctx = JSON.parse(store.getKv(ctxKey(booking.id)) ?? 'null') as Ctx | null;
+      const profile = ctx?.profile ?? store.getProfile(booking.profileId);
+      if (!profile) {
+        move(booking.id, 'cancelled', { note: 'freelancer profile is missing' });
+        return;
+      }
+      const preview = registry.get(booking.source)?.previewBooking?.({ bookingId: booking.id, profile, brief, priceUsd: booking.priceUsd, pricingIndex: ctx?.pricingIndex });
+      const res = await gate.request({
+        action: 'book',
+        jobId: booking.jobId,
+        bookingId: booking.id,
+        summary: `Book ${profile.name} on ${booking.platform} for $${booking.priceUsd}`,
+        detail: `${profile.headline}\n${profile.url}\nHAAS pays from its own wallet on Solana, and only after the work passes the quality check.${preview ? `\n\n${preview}` : ''}`,
+      });
+      if (need(booking.id).status !== 'pending_escrow') return;
+      if (!res.approved) {
+        move(booking.id, 'cancelled', { note: `booking not approved${res.approval?.note ? `: ${res.approval.note}` : ''}` });
+        return;
+      }
+      store.setKv(approvedKey(booking.id), String(now()));
+      await begin(booking, brief);
+    } catch (err) {
+      console.error(`[bookings] approval failed for ${booking.id}:`, err);
+      if (need(booking.id).status === 'pending_escrow') move(booking.id, 'cancelled', { note: `approval failed: ${errMsg(err)}` });
     }
   }
 
@@ -460,7 +496,7 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
       store.insertBooking(booking);
       store.setKv(ctxKey(booking.id), JSON.stringify(ctx));
       bus.emit({ type: 'booking.updated', booking });
-      void begin(booking, job.brief);
+      void (config.ESCROW_AUTO_FUND ? approveThenBegin(booking, job.brief) : begin(booking, job.brief));
       return booking;
     },
 

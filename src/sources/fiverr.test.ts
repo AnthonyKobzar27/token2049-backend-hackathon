@@ -106,9 +106,9 @@ describe('contact message', () => {
     const m = contactMessage({ ...brief, notes: 'Student is in grade 11', hoursNeeded: 2, when: { date: '2026-10-10', window: { start: '14:00', end: '16:00' }, timezone: 'Asia/Singapore' } }, 79.6);
     expect(m).toContain('Find an SAT tutor');
     expect(m).toContain('Student is in grade 11');
-    expect(m).toContain('2026-10-10 14:00-16:00 Asia/Singapore');
+    expect(m).toContain('Sat 10 Oct, 14:00-16:00 (Asia/Singapore)');
     expect(m).toContain('$80');
-    expect(m).toMatch(/custom offer/);
+    expect(m).toMatch(/send me an offer/);
   });
 });
 

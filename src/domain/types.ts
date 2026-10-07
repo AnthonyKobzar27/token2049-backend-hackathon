@@ -499,6 +499,8 @@ export interface EscrowRecord {
   /** Wallet deep link (Solana Pay URL). */
   payUrl?: string;
   payer?: string;
+  /** HAAS paid the deposit from its own wallet (ESCROW_AUTO_FUND); the hirer paid nothing. */
+  fundedByHaas?: boolean;
   depositTx?: string;
   settleTx?: string;
   explorerUrl?: string;

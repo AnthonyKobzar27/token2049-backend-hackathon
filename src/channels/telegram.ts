@@ -66,7 +66,7 @@ const EDIT_INTERVAL_MS = 1500;
 const START_TEXT = [
   '<b>HAAS</b>: Human as a Service, an open router for freelancers.',
   'Tell me what you need done. I search Fiverr and similar platforms, rank the best fits with reasons, and check with you before anything is booked.',
-  'Your budget is held in escrow until the work passes a quality check, and afterwards I keep you and the freelancer informed.',
+  'Nobody is paid until the work passes a quality check, and I keep you and the freelancer informed.',
   '',
   'Commands: /status for your jobs, /cancel to stop the current one, /help for this text.',
 ].join('\n');
@@ -445,6 +445,8 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
         return;
       }
       case 'escrow.updated': {
+        // HAAS funds and settles the escrow itself: the chat never sees it.
+        if (config.ESCROW_AUTO_FUND) return;
         const e = event.escrow;
         if (lastEscrowStatus.get(e.id) === e.status) return;
         lastEscrowStatus.set(e.id, e.status);
@@ -466,6 +468,7 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
         return;
       }
       case 'escrow.timeout': {
+        if (config.ESCROW_AUTO_FUND) return;
         const chat = chatOfBooking(event.booking.id);
         if (chat) await api.send(chat, escrowTimeoutLine(event.kind, event.escrow));
         return;

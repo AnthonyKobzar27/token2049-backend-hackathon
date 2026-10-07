@@ -44,7 +44,7 @@ describe('router', () => {
     expect(r.candidates[0]!.reason).toMatch(/^Stub fit/);
     expect(r.candidates.map((c) => c.score)).toEqual([...r.candidates.map((c) => c.score)].sort((a, b) => b - a));
     const msgs = events.flatMap((e) => (e.type === 'job.progress' ? [e.message] : []));
-    expect(msgs.some((m) => /^Scoring \d+ profiles…$/.test(m))).toBe(true);
+    expect(msgs.some((m) => /^Picking the best \d+ of \d+ profiles…$/.test(m))).toBe(true);
   });
 
   it('honours exclude and passes feedback to scoring', async () => {

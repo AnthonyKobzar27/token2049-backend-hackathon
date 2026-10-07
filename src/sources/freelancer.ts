@@ -4,6 +4,7 @@
 // FREELANCER_LIVE_BOOKING=true and FREELANCER_TOKEN (accepting a delivery there releases real money).
 
 import type { Config } from '../config';
+import { outreachMessage, titleForFreelancer } from '../agent/outreach';
 import type { FreelancerSource, SearchOptions } from '../domain/ports';
 import type {
   BookingRequest,
@@ -244,16 +245,8 @@ export function createFreelancerSource(config: Config): FreelancerSource {
       const jobIds = await resolveJobIds(skillNames.slice(0, 3));
       if (!jobIds.length) return handoff(profile, 'No matching Freelancer skill id was found for the brief.');
       const amount = round2(priceUsd);
-      const title = `Hire Me: ${brief.task}`.slice(0, 100);
-      const description = [
-        brief.task,
-        brief.notes,
-        brief.skills.length ? `Skills: ${brief.skills.join(', ')}` : undefined,
-        brief.deadlineDays ? `Deadline: ${brief.deadlineDays} days` : undefined,
-        `Budget: ${amount} USD fixed price.`,
-      ]
-        .filter(Boolean)
-        .join('\n');
+      const title = titleForFreelancer(brief).slice(0, 100);
+      const description = outreachMessage(brief, amount, { ask: 'Let me know if you can take it on. Thanks!' });
       const project = await sandbox<{ id: number; seo_url?: string }>('/projects/0.1/projects/', {
         method: 'POST',
         json: {

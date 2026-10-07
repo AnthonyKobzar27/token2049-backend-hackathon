@@ -1,4 +1,5 @@
 import type { Page } from 'playwright-core';
+import { outreachMessage } from '../../agent/outreach';
 import type { Brief } from '../../domain/types';
 import type { EventBus } from '../../domain/ports';
 import { detectChallenge, waitForOperator } from './challenge';
@@ -23,22 +24,7 @@ export type ContactOutcome =
 
 /** The first message a freelancer receives: the brief, the budget, and a request for an offer. */
 export function contactMessage(brief: Brief, priceUsd: number): string {
-  const lines = [
-    `Hi! I'd like to hire you for this: ${brief.task.trim()}`,
-    brief.notes ? `Details: ${brief.notes.trim()}` : '',
-    brief.when ? `When: ${whenText(brief)}` : '',
-    brief.hoursNeeded ? `Estimated time: ${brief.hoursNeeded} hours` : '',
-    brief.deadlineDays ? `Needed within ${brief.deadlineDays} days` : '',
-    `Budget: about $${Math.round(priceUsd)} USD.`,
-    'Could you send me a custom offer if you can take it on? Thanks!',
-  ];
-  return lines.filter(Boolean).join('\n');
-}
-
-function whenText(brief: Brief): string {
-  const w = brief.when!;
-  const parts = [w.date, w.window ? `${w.window.start}-${w.window.end}` : undefined, w.timezone ?? brief.timezone].filter(Boolean);
-  return parts.join(' ');
+  return outreachMessage(brief, priceUsd);
 }
 
 const LOGIN_URL = /\/(login|log-in|signin|sign-in|sign_in|join|register|signup|sign-up)(\b|\/|\?)/i;

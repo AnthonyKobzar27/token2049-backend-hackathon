@@ -140,6 +140,25 @@ export function createSolanaProgramEscrow(config: Config, opts: SolanaProgramEsc
     return null;
   }
 
+  /** The program's initialize-and-deposit instruction for this escrow, paid by `hirer`. */
+  async function depositIx(escrow: EscrowRecord, hirer: PublicKey) {
+    const { decimals, tokenProgram } = await mintInfo();
+    const deadlineS = BigInt(Math.floor((escrow.deadline ?? now() + 14 * 86_400_000) / 1000));
+    if (Number(deadlineS) * 1000 <= now()) throw new Error('the escrow deadline has passed; ask for a new booking');
+    const ix = initializeAndDepositIx({
+      programId,
+      hirer,
+      authority: operator.publicKey,
+      payee: new PublicKey(escrow.payee ?? operator.publicKey),
+      mint,
+      bookingId: escrow.bookingId,
+      amount: toBaseUnits(escrow.amount, decimals),
+      deadline: deadlineS,
+      tokenProgram,
+    });
+    return { ix, deadlineS };
+  }
+
   const destAta = (owner: PublicKey, tokenProgram: PublicKey) => getAssociatedTokenAddressSync(mint, owner, true, tokenProgram);
 
   return {
@@ -156,7 +175,7 @@ export function createSolanaProgramEscrow(config: Config, opts: SolanaProgramEsc
       const payeeKey = payee ? new PublicKey(payee) : operator.publicKey; // throws on a bad address
       const t = now();
       const endpoint = `${config.PUBLIC_URL.replace(/\/$/, '')}/solana-pay/escrow/${encodeURIComponent(bookingId)}`;
-      return {
+      const rec: EscrowRecord = {
         id: newId('esc'),
         bookingId,
         provider: PROVIDER_NAME,
@@ -171,25 +190,17 @@ export function createSolanaProgramEscrow(config: Config, opts: SolanaProgramEsc
         createdAt: t,
         updatedAt: t,
       };
+      if (!config.ESCROW_AUTO_FUND) return rec;
+      // HAAS locks the money itself: the hirer is never asked for a deposit, and release/refund stay on chain.
+      const { ix } = await depositIx(rec, operator.publicKey);
+      const sig = await send('funding the escrow from the HAAS wallet', [ix]);
+      return touch(rec, { status: 'funded', payer: operator.publicKey.toBase58(), fundedByHaas: true, depositTx: sig, ...withTx(rec, 'deposit', sig) });
     },
 
     async buildDepositTransaction(escrow, account) {
       if (escrow.status !== 'awaiting_deposit') throw new Error(`escrow is ${escrow.status}, not awaiting a deposit`);
       const hirer = new PublicKey(account);
-      const { decimals, tokenProgram } = await mintInfo();
-      const deadlineS = BigInt(Math.floor((escrow.deadline ?? now() + 14 * 86_400_000) / 1000));
-      if (Number(deadlineS) * 1000 <= now()) throw new Error('the escrow deadline has passed; ask for a new booking');
-      const ix = initializeAndDepositIx({
-        programId,
-        hirer,
-        authority: operator.publicKey,
-        payee: new PublicKey(escrow.payee ?? operator.publicKey),
-        mint,
-        bookingId: escrow.bookingId,
-        amount: toBaseUnits(escrow.amount, decimals),
-        deadline: deadlineS,
-        tokenProgram,
-      });
+      const { ix, deadlineS } = await depositIx(escrow, hirer);
       const { blockhash, lastValidBlockHeight } = await rpc('fetching a blockhash', () => connection.getLatestBlockhash('confirmed'));
       const tx = new Transaction({ feePayer: hirer, blockhash, lastValidBlockHeight }).add(ix);
       const transaction = tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64');

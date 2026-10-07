@@ -106,8 +106,8 @@ describe('telegram controller', () => {
     const hirer = t.sent.find((m) => m.chat === '7')!;
     const operator = t.sent.find((m) => m.chat === '99')!;
     expect(hirer.text).toContain('Quality check passed (score 92/100)');
-    expect(hirer.text).toContain('Release $25');
-    expect(hirer.buttons?.[0]?.map((b) => b.text)).toEqual(['Release $25', 'Ask for a fix']);
+    expect(hirer.text).toContain('Pay $25');
+    expect(hirer.buttons?.[0]?.map((b) => b.text)).toEqual(['Pay $25', 'Ask for a fix']);
     expect(operator.buttons?.[0]?.map((b) => b.data)).toEqual(['a:apr_acc', 'd:apr_acc']);
     await t.c.onCallback('7', '7', 'cb', 'a:apr_acc', 1);
     expect(t.gate.resolve).toHaveBeenCalledWith('apr_acc', { approved: true, by: 'hirer:7' });

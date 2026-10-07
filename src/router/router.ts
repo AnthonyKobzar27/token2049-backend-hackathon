@@ -42,7 +42,7 @@ export function createRouter(deps: { registry: SourceRegistry; suitability: Suit
       const pool = profiles.filter((p) => !excluded.has(p.id));
       const late = sources.filter((s) => s.late).map((s) => s.source);
       if (late.length > 0) progress(`Ranking without ${late.join(', ')} (still searching)`);
-      progress(`Scoring ${pool.length} profiles…`);
+      progress(`Picking the best ${opts.limit ?? config.SHORTLIST_SIZE} of ${pool.length} profiles…`);
 
       const scoringBrief = opts.feedback ? { ...brief, notes: [brief.notes, opts.feedback].filter(Boolean).join('\n') } : brief;
       const budgetMs = Math.max(MIN_SCORING_MS, total - (Date.now() - started));

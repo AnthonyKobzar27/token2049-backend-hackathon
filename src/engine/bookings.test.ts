@@ -589,3 +589,28 @@ describe('settling races', () => {
     await vi.waitFor(() => expect(h.status(id)).toBe('in_revision'));
   });
 });
+
+describe('bookings with HAAS-funded escrow (ESCROW_AUTO_FUND)', () => {
+  it('asks the approval before any escrow exists, then funds and books without asking again', async () => {
+    const h = setup({ config: { ESCROW_AUTO_FUND: true } });
+    let escrowAtApproval: unknown = 'unset';
+    vi.mocked(h.gate.request).mockImplementationOnce(async (req) => {
+      escrowAtApproval = h.store.getEscrowByBooking(req.bookingId!);
+      h.asked.push(req.action);
+      return { approved: true };
+    });
+    const b = h.svc.create(job, cand(30));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('placed'));
+    expect(escrowAtApproval).toBeNull();
+    expect(h.asked.filter((a) => a === 'book')).toHaveLength(1);
+    expect(h.escrow.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('a denial cancels the booking with no escrow and no booking on the platform', async () => {
+    const h = setup({ config: { ESCROW_AUTO_FUND: true }, approve: false });
+    const b = h.svc.create(job, cand(30));
+    await vi.waitFor(() => expect(h.status(b.id)).toBe('cancelled'));
+    expect(h.escrow.create).not.toHaveBeenCalled();
+    expect(h.source.book).not.toHaveBeenCalled();
+  });
+});

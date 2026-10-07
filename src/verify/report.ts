@@ -22,5 +22,5 @@ export function qaSummaryText(r: VerificationReport): string {
 export function revisionRequestText(r: VerificationReport): string {
   const failed = r.checks.filter((c) => !c.ok);
   const items = failed.length ? failed.map((c) => `- ${c.detail}`) : [`- ${r.summary}`];
-  return ['Thanks for the delivery. Before it can be accepted, please fix the following:', ...items, 'Please send the corrected delivery when ready.'].join('\n');
+  return ['Thanks for sending this over! Just a couple of fixes before I can sign off:', ...items, 'Send the updated version when you can. Thanks!'].join('\n');
 }

@@ -8,6 +8,7 @@
 // Docs: https://rentahuman.ai/docs
 
 import type { Config } from '../config';
+import { outreachMessage, titleForFreelancer } from '../agent/outreach';
 import type { FreelancerSource, SearchOptions } from '../domain/ports';
 import type { BookingRequest, BookingResult, Brief, FreelancerProfile, Ms, PlatformBookingStatus, Pricing } from '../domain/types';
 import { findCountry, HttpError, keywords, languageCode, requestJson, toUsd } from './http';
@@ -284,12 +285,9 @@ export function createRentAHumanSource(config: Config): FreelancerSource {
   function bountyBody(request: BookingRequest): Record<string, unknown> {
     const { brief, priceUsd } = request;
     const hours = brief.hoursNeeded && brief.hoursNeeded > 0 ? brief.hoursNeeded : 1;
-    const description = [brief.task, brief.notes, brief.location && !brief.remoteOk ? `Location: ${brief.location}` : undefined]
-      .filter(Boolean)
-      .join('\n')
-      .padEnd(20, '.');
+    const description = outreachMessage(brief, priceUsd, { ask: 'Let me know if you can do it. Thanks!' }).padEnd(20, '.');
     return {
-      title: brief.task.slice(0, 200).padEnd(5, '.'),
+      title: titleForFreelancer(brief).slice(0, 200).padEnd(5, '.'),
       description: description.slice(0, 5000),
       completionCriteria: 'Report what was done, with any details the task asks for (times, references, links or photos).',
       evidenceTypes: ['text'],
