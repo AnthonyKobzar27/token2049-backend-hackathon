@@ -5,6 +5,7 @@
 import type { Config } from '../config';
 import type { EventBus, Router, SourceRegistry, SuitabilityScorer } from '../domain/ports';
 import { rank, type OnChainSignal } from './match';
+import { choosePlatforms } from './platforms';
 import { weightsFor } from './weights';
 
 /** Share of the whole budget the source search may use. */
@@ -32,7 +33,11 @@ export function createRouter(deps: { registry: SourceRegistry; suitability: Suit
         if (opts.jobId) bus.emit({ type: 'job.progress', jobId: opts.jobId, message });
       };
 
-      const { profiles, sources } = await registry.searchAll(brief, { limitPerSource: 25, jobId: opts.jobId, budgetMs: Math.round(total * SEARCH_SHARE) });
+      // Pick the platforms that fit the work: in-person tasks go to RentAHuman and local workers,
+      // remote skilled work to the freelance marketplaces.
+      const platforms = choosePlatforms(brief);
+      progress(platforms.why);
+      const { profiles, sources } = await registry.searchAll(brief, { limitPerSource: 25, jobId: opts.jobId, budgetMs: Math.round(total * SEARCH_SHARE), skip: platforms.skip });
       const excluded = new Set(opts.exclude ?? []);
       const pool = profiles.filter((p) => !excluded.has(p.id));
       const late = sources.filter((s) => s.late).map((s) => s.source);

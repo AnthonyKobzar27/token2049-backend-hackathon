@@ -22,9 +22,25 @@ describe('intake without an API key', () => {
     const r = await intake.next([
       { from: 'hirer', text: 'translate a manual' },
       { from: 'agent', text: 'Which languages?' },
-      { from: 'hirer', text: 'German to English' },
+      { from: 'hirer', text: 'German to English, $40' },
     ]);
     expect(r.kind === 'brief' && r.brief.task).toBe('translate a manual');
+  });
+
+  it('asks for what is missing before searching, one topic at a time', async () => {
+    const first = await intake.next([{ from: 'hirer', text: 'Wait in line for the iPhone launch at Orchard ION for me' }]);
+    expect(first).toMatchObject({ kind: 'ask' });
+    expect(first.kind === 'ask' && first.text).toMatch(/day and time/i);
+    const second = await intake.next([
+      { from: 'hirer', text: 'Wait in line for the iPhone launch at Orchard ION for me' },
+      { from: 'agent', text: first.kind === 'ask' ? first.text : '' },
+      { from: 'hirer', text: 'Saturday 7am, about 4 hours, $60' },
+    ]);
+    expect(second.kind).toBe('brief');
+    if (second.kind === 'brief') {
+      expect(second.brief.remoteOk).toBe(false);
+      expect(second.summary).toMatch(/RentAHuman/);
+    }
   });
 });
 
@@ -50,7 +66,7 @@ describe('intake: place, on-site and day/time without a model', () => {
     const r = await intake.next([
       { from: 'hirer', text: 'queue for concert tickets in Singapore' },
       { from: 'agent', text: 'When?' },
-      { from: 'hirer', text: 'tomorrow morning' },
+      { from: 'hirer', text: 'tomorrow morning, 2 hours, $40' },
     ]);
     if (r.kind !== 'brief') throw new Error('expected a brief');
     expect(r.brief.when?.date).toBe('2026-10-06');
@@ -58,7 +74,7 @@ describe('intake: place, on-site and day/time without a model', () => {
   });
 
   it('leaves remote work remote and without a time', async () => {
-    const r = await intake.next([{ from: 'hirer', text: 'Design a logo for my bakery, remote is fine' }]);
+    const r = await intake.next([{ from: 'hirer', text: 'Design a logo for my bakery, remote is fine, $100' }]);
     if (r.kind !== 'brief') throw new Error('expected a brief');
     expect(r.brief.remoteOk).toBe(true);
     expect(r.brief.when).toBeUndefined();

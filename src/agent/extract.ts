@@ -8,7 +8,7 @@ import { placeLabel, resolvePlace } from '../router/geo';
 import { briefZone, hhmm, parseWhen } from '../router/when';
 import { keywords, languageCode } from '../sources/http';
 
-const ON_SITE = /\b(on[- ]?site|in[- ]person|onsite|errands?|pick ?up|pickup|collect|drop[- ]?off|deliver(y|ies)?|courier|queue|queu(e|ing) for|stand in line|event staff|usher|booth|venue|help (me )?move|moving|assemble|handyman|clean(ing)?|walk (my )?dog|photograph(er|y)? (at|for) (my|our|the) (event|wedding|party|conference))\b/;
+const ON_SITE = /\b(on[- ]?site|in[- ]person|onsite|errands?|pick ?up|pickup|collect|drop[- ]?off|deliver(y|ies)?|courier|queue|queu(e|ing) for|stand in line|wait(ing)? in (a |the )?(line|queue)|line up|hold (a|my|our) (spot|place)|in line for|check (it|the \w+) in person|event staff|usher|booth|venue|help (me )?move|moving|assemble|handyman|clean(ing)?|walk (my )?dog|photograph(er|y)? (at|for) (my|our|the) (event|wedding|party|conference))\b/;
 const REMOTE = /\b(remote(ly)?|online|anywhere|virtual)\b/;
 
 /** The place named in the text, as a display label ("Marina Bay"), or undefined. */

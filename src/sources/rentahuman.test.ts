@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { testConfig } from '../config';
-import { createRentAHumanSource, normaliseHuman, type RawHuman } from './rentahuman';
+import { createRentAHumanSource, MAX_SEARCH_REQUESTS, normaliseHuman, placeOf, searchPlan, skillTerms, type RawHuman } from './rentahuman';
 
 const load = (f: string) => JSON.parse(readFileSync(new URL(`./__fixtures__/${f}`, import.meta.url), 'utf8'));
 const humans: RawHuman[] = load('rentahuman-humans.json').humans;
@@ -135,5 +135,126 @@ describe('rentahuman source', () => {
     expect(calls[0]!.body).toMatchObject({ dryRun: true });
     expect(res).toMatchObject({ kind: 'handoff' });
     expect((res as { instructions: string }).instructions).toContain('$26.5');
+  });
+});
+
+describe('rentahuman search widening', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const queue = {
+    task: 'Wait in line for the iPhone launch at Apple Store Orchard Road, Singapore, Saturday 7am, 4 hours',
+    skills: ['line sitter', 'queue standing', 'errand runner', 'personal assistant errands'],
+    location: 'Apple Store Orchard Road, Singapore',
+    remoteOk: false,
+    budgetUsd: 60,
+    hoursNeeded: 4,
+  };
+  const tutor = { task: 'SAT math tutor', skills: ['SAT math tutor', 'math tutoring'], remoteOk: true, budgetUsd: 100, hoursNeeded: 4 };
+  const person = (id: string, city: string, country: string): RawHuman => ({ id, name: id, skills: ['Errands'], location: { city, country }, hourlyRate: 50 });
+
+  /** Stub /api/humans; `answer` gets the query of each call (in order). */
+  function stubHumans(answer: (q: Record<string, string>, i: number) => RawHuman[] | number): Record<string, string>[] {
+    const seen: Record<string, string>[] = [];
+    vi.stubGlobal('fetch', async (input: URL | string) => {
+      const q = Object.fromEntries(new URL(String(input)).searchParams);
+      seen.push(q);
+      const r = answer(q, seen.length - 1);
+      if (typeof r === 'number') return new Response('{"success":false}', { status: r });
+      return new Response(JSON.stringify({ success: true, humans: r }), { status: 200 });
+    });
+    return seen;
+  }
+
+  it('turns free-text places into a city and country', () => {
+    expect(placeOf('Apple Store Orchard Road, Singapore')).toEqual({ city: 'Singapore', country: 'SG' });
+    expect(placeOf('Berlin, Germany')).toEqual({ city: 'Berlin', country: 'DE' });
+    expect(placeOf('12 Main St, Austin, USA')).toEqual({ city: 'Austin', country: 'US' });
+    expect(placeOf('Lisbon')).toEqual({ city: 'Lisbon', country: undefined });
+  });
+
+  it('maps brief phrases to the words profiles use, keeping the exact skills first', () => {
+    const { exact, wide } = skillTerms(queue);
+    expect(exact).toEqual(['line sitter', 'queue standing', 'errand runner', 'personal assistant errands']);
+    expect(wide.slice(0, 4)).toEqual(exact);
+    expect(wide).toEqual(expect.arrayContaining(['queue', 'errand', 'line standing', 'assistant']));
+    // Vague words match unrelated skills ("line" is in "Online").
+    expect(wide).not.toContain('line');
+    expect(wide).not.toContain('sitter');
+    expect(skillTerms(tutor).wide).toEqual(expect.arrayContaining(['math', 'tutor', 'teaching']));
+  });
+
+  it('plans on-site searches from exact to wide, cap to no cap, city to country to anywhere', () => {
+    const { steps } = searchPlan(queue);
+    const exact = 'line sitter,queue standing,errand runner,personal assistant errands';
+    const wide = skillTerms(queue).wide.join(',');
+    expect(steps).toEqual([
+      { skill: exact, city: 'Singapore', maxRate: 15 },
+      { skill: wide, city: 'Singapore', maxRate: 15 },
+      { skill: wide, city: 'Singapore', maxRate: 30 },
+      { skill: wide, city: 'Singapore' },
+      { skill: wide, country: 'SG' },
+      { city: 'Singapore', maxRate: 30 },
+      { city: 'Singapore' },
+      { country: 'SG', maxRate: 30 },
+      { country: 'SG' },
+      { skill: wide },
+    ]);
+    expect(steps.length).toBeLessThanOrEqual(MAX_SEARCH_REQUESTS);
+  });
+
+  it('never drops the skill or adds a place for remote work', () => {
+    const { steps } = searchPlan(tutor);
+    expect(steps.every((s) => typeof s.skill === 'string' && !('city' in s) && !('country' in s))).toBe(true);
+    expect(steps.map((s) => s.maxRate)).toEqual([25, 25, 50, undefined]);
+  });
+
+  it('widens step by step until it finds people in the place', async () => {
+    const calls = stubHumans((q) => (!q.skill && q.city === 'Singapore' && !q.maxRate ? Array.from({ length: 12 }, (_, i) => person(`sg${i}`, 'Singapore', 'SG')) : []));
+    const res = await createRentAHumanSource(testConfig()).search(queue, { limit: 10 });
+    expect(res).toHaveLength(10);
+    expect(res.every((p) => p.country === 'SG')).toBe(true);
+    // Stopped at the first step that found enough: generic city search without a cap (step 7).
+    expect(calls).toHaveLength(7);
+    expect(calls.at(-1)).toMatchObject({ city: 'Singapore', limit: '24' });
+  });
+
+  it('stops as soon as the first step finds enough, deduping across steps', async () => {
+    const calls = stubHumans((_q, i) => (i === 0 ? [person('a', 'Singapore', 'SG'), person('a', 'Singapore', 'SG'), person('b', 'Singapore', 'SG')] : []));
+    const res = await createRentAHumanSource(testConfig()).search(queue, { limit: 2 });
+    expect(calls).toHaveLength(1);
+    expect(res.map((p) => p.platformId)).toEqual(['a', 'b']);
+  });
+
+  it('keeps earlier, more specific matches first and adds later ones', async () => {
+    stubHumans((_q, i) => (i === 0 ? [person('exact', 'Singapore', 'SG')] : i === 3 ? [person('exact', 'Singapore', 'SG'), person('wide', 'Singapore', 'SG')] : []));
+    const res = await createRentAHumanSource(testConfig()).search(queue, { limit: 10 });
+    expect(res.map((p) => p.platformId)).toEqual(['exact', 'wide']);
+  });
+
+  it('prefers people in the place, falling back to others only when nobody local is found', async () => {
+    stubHumans(() => [person('ldn', 'London', 'GB')]);
+    const far = await createRentAHumanSource(testConfig()).search(queue, { limit: 10 });
+    expect(far.map((p) => p.platformId)).toEqual(['ldn']);
+
+    const calls = stubHumans((_q, i) => (i === 1 ? [person('ldn', 'London', 'GB'), person('sg', 'Singapore', 'SG')] : []));
+    const near = await createRentAHumanSource(testConfig()).search(queue, { limit: 10 });
+    expect(near.map((p) => p.platformId)).toEqual(['sg']);
+    expect(calls).toHaveLength(MAX_SEARCH_REQUESTS);
+  });
+
+  it('skips a failing step but throws when every step failed and nothing was found', async () => {
+    stubHumans((_q, i) => (i === 0 ? 500 : [person('sg', 'Singapore', 'SG')]));
+    expect((await createRentAHumanSource(testConfig()).search(queue, { limit: 1 })).map((p) => p.platformId)).toEqual(['sg']);
+    stubHumans(() => 503);
+    await expect(createRentAHumanSource(testConfig()).search(queue, { limit: 5 })).rejects.toThrow(/HTTP 503/);
+  });
+
+  it('stops when the signal is aborted', async () => {
+    const ctrl = new AbortController();
+    const calls = stubHumans(() => {
+      ctrl.abort();
+      return [];
+    });
+    await expect(createRentAHumanSource(testConfig()).search(queue, { limit: 5, signal: ctrl.signal })).rejects.toThrow();
+    expect(calls).toHaveLength(1);
   });
 });

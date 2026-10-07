@@ -189,7 +189,9 @@ export function createRegistry(deps: { sources: FreelancerSource[]; store: Store
       };
       const done = (status: SourceStatus): void => bus.emit({ type: 'source.done', ...(opts.jobId && { jobId: opts.jobId }), status });
       try {
-        const results = await Promise.all(enabled().map((s) => searchOne(s, brief, keys, opts.limitPerSource, deadline, progress, done)));
+        const skip = new Set(opts.skip ?? []);
+        const chosen = enabled().filter((s) => !skip.has(s.name));
+        const results = await Promise.all(chosen.map((s) => searchOne(s, brief, keys, opts.limitPerSource, deadline, progress, done)));
         const seen = new Set<string>();
         const profiles: FreelancerProfile[] = [];
         for (const r of results) {
