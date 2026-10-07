@@ -7,7 +7,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "frontend": "pnpm --dir frontend dev",
-    "messages": "pnpm --dir messages start",
+    "messages": "cd messages && python3 client.py",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "spike:masumi": "tsx scripts/masumi-spike.ts",
@@ -29,6 +29,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@meshsdk/core": "^1.9.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@solana/kit": "^8.4.0",
     "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.99.0",

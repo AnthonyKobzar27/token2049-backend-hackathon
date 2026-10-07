@@ -190,13 +190,13 @@ describe('search budget', () => {
     expect(r.profiles).toHaveLength(3);
   });
 
-  it('keeps browser sources opt-in and never waits on them', async () => {
+  it('lets browser sources be switched off and never waits on them', async () => {
     const browser: FreelancerSource = { ...source('fiverr', () => later(80, [prof('g', 'fiverr')])), kind: 'browser' };
     const api = source('api', async () => [prof('a', 'api')]);
-    const off = createRegistry({ sources: [browser, api], store: memStore().store, bus: createEventBus(), config: testConfig() });
+    const off = createRegistry({ sources: [browser, api], store: memStore().store, bus: createEventBus(), config: testConfig({ BROWSER_SOURCES: false }) });
     expect(off.enabled().map((s) => s.name)).toEqual(['api']);
 
-    const reg = createRegistry({ sources: [browser, api], store: memStore().store, bus: createEventBus(), config: testConfig({ BROWSER_SOURCES: true }) });
+    const reg = createRegistry({ sources: [browser, api], store: memStore().store, bus: createEventBus(), config: testConfig({ BROWSER_SOURCES: true, BROWSER_WAIT: false }) });
     const t0 = Date.now();
     const r = await reg.searchAll(brief, { limitPerSource: 5, budgetMs: 5000 });
     expect(Date.now() - t0).toBeLessThan(60);

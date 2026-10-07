@@ -116,6 +116,8 @@ export interface FreelancerSource {
    * platform needs a card: return a handoff instead.
    */
   book?(request: BookingRequest): Promise<BookingResult>;
+  /** What book() will send on the person's behalf (e.g. the draft message to a freelancer), shown in the 'book' approval first. */
+  previewBooking?(request: BookingRequest): string | undefined;
   getBookingStatus?(platformRef: string): Promise<PlatformBookingStatus>;
   sendMessage?(platformRef: string, text: string): Promise<void>;
   readMessages?(platformRef: string, since: number): Promise<PlatformMessage[]>;

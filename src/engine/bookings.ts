@@ -163,6 +163,8 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
         return;
       }
       const brief: Brief = store.getJob(booking.jobId)?.brief ?? { task: '', skills: [], remoteOk: true };
+      // Sites booked by message: the approval carries the exact draft, so nothing reaches the freelancer unseen.
+      const preview = registry.get(booking.source)?.previewBooking?.({ bookingId: id, profile, brief, priceUsd: booking.priceUsd, pricingIndex: ctx?.pricingIndex });
 
       let approved: boolean;
       let note: string | undefined;
@@ -172,7 +174,7 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
           jobId: booking.jobId,
           bookingId: id,
           summary: `Book ${profile.name} on ${booking.platform} for $${booking.priceUsd}`,
-          detail: `${profile.headline}\n${profile.url}\nBudget is held in escrow (${esc.amount} ${esc.currency}).`,
+          detail: `${profile.headline}\n${profile.url}\nBudget is held in escrow (${esc.amount} ${esc.currency}).${preview ? `\n\n${preview}` : ''}`,
         });
         approved = res.approved;
         note = res.approval?.note;
@@ -585,7 +587,9 @@ export function createBookingService(deps: BookingDeps): BookingService & QaCont
           console.error(`[bookings] release retry failed for ${booking.id}:`, err);
         }
       }
-      for (const booking of store.listBookings({ status: POLLED })) {
+      // A handoff with a platform reference (e.g. a RentAHuman escrow a person pays at checkout) is followed too.
+      const handedOff = store.listBookings({ status: ['handoff'] }).filter((b) => b.platformRef && registry.get(b.source)?.getBookingStatus);
+      for (const booking of [...store.listBookings({ status: POLLED }), ...handedOff]) {
         if (busy.has(booking.id)) continue;
         try {
           await applyPlatformStatus(booking);

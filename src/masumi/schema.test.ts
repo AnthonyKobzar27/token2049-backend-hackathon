@@ -19,7 +19,8 @@ describe('parseBrief', () => {
   });
   it('parses the list form and applies defaults', () => {
     const r = parseBrief([{ key: 'task', value: 'Translate' }, { id: 'language', value: 'de' }, { key: 'notes', value: '' }]);
-    expect(r).toEqual({ ok: true, value: { task: 'Translate', skills: [], remoteOk: true, language: 'de' } });
+    // Skills come from the task when the caller sends none, so every platform has something to search.
+    expect(r).toEqual({ ok: true, value: { task: 'Translate', skills: ['translate'], remoteOk: true, language: 'de' } });
   });
   it('rejects bad input', () => {
     expect(parseBrief({})).toMatchObject({ ok: false });

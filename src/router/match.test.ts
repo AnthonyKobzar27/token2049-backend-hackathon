@@ -39,6 +39,10 @@ describe('hard filters', () => {
   });
   it('drops on a known language mismatch', () => {
     expect(dropReason(brief({ language: 'de' }), prof('a', { languages: ['en', 'fr'] }))).toBe('language');
+    // The person's wording and the profile's code mean the same language.
+    expect(dropReason(brief({ language: 'English' }), prof('a', { languages: ['en'] }))).toBeNull();
+    expect(dropReason(brief({ language: 'en' }), prof('a', { languages: ['English'] }))).toBeNull();
+    expect(dropReason(brief({ language: 'Spanish' }), prof('a', { languages: ['en'] }))).toBe('language');
     expect(dropReason(brief({ language: 'EN' }), prof('a', { languages: ['en'] }))).toBeNull();
   });
   it('drops on-site work in another country, via aliases', () => {

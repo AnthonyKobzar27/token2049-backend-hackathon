@@ -29,6 +29,7 @@ import { createBrowserSources } from './sources/browser';
 import { createVeridian, mountVeridian } from './identity/veridian';
 import { combineSignals } from './identity/veridian/service';
 import { createFakeSource } from './sources/fake';
+import { createFiverrSource } from './sources/fiverr';
 import { createFreelancerSource } from './sources/freelancer';
 import { createProlificSource } from './sources/prolific';
 import { createRegistry } from './sources/registry';
@@ -39,9 +40,11 @@ const config = loadConfig();
 const store = createStore(config.DB_PATH);
 const bus = createEventBus();
 
+// Human workers: RentAHuman, Fiverr, Freelancer.com, PeoplePerHour and Guru (+ Upwork/Prolific with keys).
 const sources: FreelancerSource[] = [
-  createFreelancerSource(config),
   createRentAHumanSource(config),
+  createFiverrSource({ config, bus }),
+  createFreelancerSource(config),
   createUpworkSource(config),
   // Publishing a study spends money: it asks the approval gate, created further down.
   createProlificSource({ config, store, gate: () => gate }),

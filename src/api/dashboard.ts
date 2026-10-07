@@ -2,6 +2,8 @@
 // (messages/). Read endpoints serve the store; writes go through the same
 // services the channels use, so state transitions and approvals stay uniform.
 
+import { enrichBrief, looksOnSite } from '../agent/extract';
+import { createIntake, type IntakeTurn } from '../agent/intake';
 import { createHash, randomBytes } from 'node:crypto';
 import type { Express, Request, Response } from 'express';
 import { newId, now } from '../domain/ids';
@@ -31,7 +33,7 @@ const BUFFER_SIZE = 200;
 const HEARTBEAT_MS = 25_000;
 
 export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): void } {
-  const { jobs, bookings, gate, registry, store, bus } = deps;
+  const { jobs, bookings, gate, registry, store, bus, config } = deps;
 
   let seq = 0;
   const buffer: { seq: number; at: number; event: HaasEvent }[] = [];
@@ -49,21 +51,38 @@ export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): 
   };
   const writeTokens = (tokens: ApiToken[]) => store.setKv(TOKENS_KEY, JSON.stringify(tokens));
 
-  // The dashboard runs on another origin (Next dev server); SSE needs plain CORS.
-  // A Bearer token, when sent, must be a live one; requests without a token are
-  // trusted as local (the dashboard itself, and curl on the operator's machine).
+  // The dashboard runs on another origin (Next dev server). Browsers may call /api only from
+  // localhost or DASHBOARD_ORIGINS, so a page the operator happens to visit cannot drive it.
+  // A Bearer token, when sent, must be a live one. Without a token only this machine is trusted
+  // (the dashboard, the iMessage bridge, curl); anything else needs a token.
+  const extraOrigins = new Set((config.DASHBOARD_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean));
+  const allowedOrigin = (origin: string): boolean => {
+    if (extraOrigins.has(origin)) return true;
+    try {
+      const host = new URL(origin).hostname;
+      return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+    } catch {
+      return false;
+    }
+  };
+  const isLoopback = (addr: string | undefined): boolean => !!addr && (addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1');
+
   app.use('/api', (req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    const origin = req.headers.origin;
+    if (origin) {
+      if (!allowedOrigin(origin)) return res.status(403).json({ error: `origin ${origin} is not allowed (set DASHBOARD_ORIGINS)` });
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     const auth = req.headers.authorization;
-    if (auth) {
-      // Any Authorization header must carry a live token; a malformed scheme or
-      // casing variant must not slip through as "no token sent".
-      const secret = /^Bearer\s+(\S+)$/i.exec(auth.trim())?.[1];
-      if (!secret) return res.status(401).json({ error: 'malformed Authorization header' });
-      const hash = sha256(secret);
+    if (!auth?.startsWith('Bearer ') && !isLoopback(req.socket.remoteAddress)) {
+      return res.status(401).json({ error: 'a Bearer token is required from other machines (POST /api/tokens on the HAAS host)' });
+    }
+    if (auth?.startsWith('Bearer ')) {
+      const hash = sha256(auth.slice('Bearer '.length).trim());
       const tokens = readTokens();
       const token = tokens.find((t) => t.hash === hash && !t.revoked);
       if (!token) return res.status(401).json({ error: 'invalid or revoked token' });
@@ -94,10 +113,9 @@ export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): 
       },
       pendingApprovals: store.listApprovals({ status: 'pending' }).length,
       openBookings: store.listBookings().filter((b) => !['completed', 'cancelled', 'refunded'].includes(b.status)).length,
-      // enabled() also applies the SOURCES allowlist, unlike per-source isEnabled().
       sources: (() => {
-        const active = new Set(registry.enabled().map((s) => s.name));
-        return registry.all().map((s) => ({ name: s.name, kind: s.kind, enabled: active.has(s.name) }));
+        const active = new Set(registry.enabled().map((src) => src.name));
+        return registry.all().map((src) => ({ name: src.name, kind: src.kind, enabled: active.has(src.name) }));
       })(),
     });
   });
@@ -109,12 +127,44 @@ export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): 
   app.post('/api/jobs', (req, res) => {
     const partial = req.body?.brief as Partial<Brief> | undefined;
     if (!partial || typeof partial.task !== 'string' || !partial.task.trim()) return fail(res, 'brief.task is required');
-    const brief: Brief = { ...partial, task: partial.task.trim(), skills: partial.skills ?? [], remoteOk: partial.remoteOk ?? true };
-    // External clients (the iMessage bridge) tag jobs with their own ref,
-    // e.g. "imessage:+1415...", so notifications can be routed per requester.
+    // Read pay, hours, deadline, place, day and time from the text (an iMessage is just a sentence).
+    const task = partial.task.trim();
+    const brief: Brief = enrichBrief({ ...partial, task, skills: partial.skills ?? [], remoteOk: partial.remoteOk ?? !looksOnSite(task) });
     const clientRef = typeof req.body?.clientRef === 'string' && req.body.clientRef.trim() ? req.body.clientRef.trim() : 'dashboard';
     const job = jobs.startJob({ brief, client: 'local', clientRef });
     res.status(201).json(job);
+  });
+
+  // Conversation in, search out: the iMessage bridge sends every text here. The intake model reads the
+  // whole conversation (task, skills, budget, place, day/time, hours), asks a short question when
+  // something important is missing, and starts the search once it understands the request.
+  const intake = createIntake({ config });
+  const convKey = (ref: string) => `dash:intake:${ref}`;
+  app.post('/api/converse', async (req, res) => {
+    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    if (!text) return fail(res, 'text is required');
+    const ref = typeof req.body?.ref === 'string' && req.body.ref.trim() ? req.body.ref.trim() : 'imessage';
+    let history: IntakeTurn[] = [];
+    try {
+      history = JSON.parse(store.getKv(convKey(ref)) ?? '[]') as IntakeTurn[];
+    } catch {
+      history = [];
+    }
+    history.push({ from: 'hirer', text });
+    try {
+      const result = await intake.next(history);
+      if (result.kind === 'ask') {
+        history.push({ from: 'agent', text: result.text });
+        store.setKv(convKey(ref), JSON.stringify(history.slice(-12)));
+        return res.json({ reply: result.text });
+      }
+      store.setKv(convKey(ref), '[]');
+      const brief = enrichBrief(result.brief);
+      const job = jobs.startJob({ brief, client: 'local', clientRef: ref });
+      return res.status(201).json({ reply: result.summary, job });
+    } catch (err) {
+      return fail(res, err, 500);
+    }
   });
 
   app.get('/api/jobs/:id', (req, res) => {

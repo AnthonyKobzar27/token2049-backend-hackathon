@@ -71,6 +71,8 @@ export interface WaitOptions {
   pollMs?: number;
   signal?: AbortSignal;
   sleep?: (ms: number) => Promise<void>;
+  /** Shows the hidden Chrome window while the person solves the check, and hides it again after. */
+  reveal?: (visible: boolean) => Promise<void>;
 }
 
 /** Tells the operator, brings the tab to front, and polls until the check is gone. True when cleared. */
@@ -84,11 +86,16 @@ export async function waitForOperator(page: PageLike, bus: EventBus, site: strin
     url: page.url(),
   });
   await page.bringToFront?.().catch(() => undefined);
+  await opts.reveal?.(true).catch(() => undefined);
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (signal?.aborted) return false;
-    await sleep(pollMs);
-    if (!(await detectChallenge(page))) return true;
+  try {
+    while (Date.now() < deadline) {
+      if (signal?.aborted) return false;
+      await sleep(pollMs);
+      if (!(await detectChallenge(page))) return true;
+    }
+    return false;
+  } finally {
+    await opts.reveal?.(false).catch(() => undefined);
   }
-  return false;
 }

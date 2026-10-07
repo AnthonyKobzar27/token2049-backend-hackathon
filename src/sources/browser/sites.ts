@@ -1,4 +1,6 @@
 import type { Brief, Platform } from '../../domain/types';
+import type { ContactSpec } from './contact';
+import { queryVariants } from '../http';
 
 export interface SiteDef {
   /** Source name, as listed in BROWSER_SITES. */
@@ -10,22 +12,13 @@ export interface SiteDef {
   hints: string;
   /** Absolute URLs matching this are profile or gig pages. */
   profileUrlPattern: RegExp;
+  /** How to message a freelancer from their profile or gig page (the booking step). */
+  contact?: ContactSpec;
 }
 
-const STOP = new Set(
-  'a an and are as at be by for from has have i in is it me my need of on or our please that the this to we with who want looking someone somebody help build make create get find hire'.split(' '),
-);
-
-/** Search words: the brief's skills, else keywords from the task. */
+/** Search words: the brief's skills, else skill words from the task (no filler, days, times or budgets). */
 export function queryFor(brief: Brief): string {
-  const skills = brief.skills.map((s) => s.trim()).filter(Boolean);
-  if (skills.length) return skills.slice(0, 3).join(' ');
-  const words = brief.task
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}+#.\s-]/gu, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !STOP.has(w));
-  return [...new Set(words)].slice(0, 4).join(' ') || brief.task.trim().slice(0, 40);
+  return queryVariants(brief.skills, brief.task)[0] ?? brief.task.trim().slice(0, 40);
 }
 
 const enc = encodeURIComponent;
@@ -41,15 +34,18 @@ export const SITES: Record<string, SiteDef> = {
       'Fiverr gig search results. Each card is one gig: seller name, gig title, rating with review count in brackets, seller level or badge (Top Rated, Level 2, Pro), and a "From <price>" figure. Prices are fixed (starting price of the gig). Delivery time is usually not shown on cards.',
     profileUrlPattern:
       /^https:\/\/www\.fiverr\.com\/(?!search|categories|cp|pro|business|resources|support|learn|become|stories|press|about|legal|logo-maker|go|gigs|sellers\/?$)[^/?#]+\/[^/?#]+/i,
+    contact: { button: /^\s*(contact( me| seller)?|message( seller)?)\s*$/i, send: /^\s*send( message)?\s*$/i },
   },
   peopleperhour: {
     name: 'peopleperhour',
     platform: 'peopleperhour',
     origin: 'https://www.peopleperhour.com',
-    searchUrl: (b) => `https://www.peopleperhour.com/services?q=${enc(queryFor(b))}`,
+    // /services?q= ignores the query; /services/<words joined by +> searches.
+    searchUrl: (b) => `https://www.peopleperhour.com/services/${queryFor(b).split(/\s+/).filter(Boolean).map(enc).join('+')}`,
     hints:
       'PeoplePerHour listings ("Hourlies" are fixed-price offers; freelancer cards may show an hourly rate). Each card: freelancer name, offer title, rating, review count, price. A price on an Hourlie is fixed; a rate shown as "/hr" is hourly. Prices may be in GBP, EUR or USD: copy the currency symbol as shown.',
     profileUrlPattern: /^https:\/\/www\.peopleperhour\.com\/(hourlie|freelance|offer|services\/[^/?#]+\/[^/?#]+)\/[^/?#]+/i,
+    contact: { button: /^\s*(contact( me| seller| freelancer)?|ask a question|send (a )?message|message)\s*$/i, send: /^\s*send( message)?\s*$/i },
   },
   guru: {
     name: 'guru',
@@ -60,6 +56,7 @@ export const SITES: Record<string, SiteDef> = {
     hints:
       'Guru freelancer search results. Each card is a freelancer: name, headline, location, hourly rate ("$xx/hr"), earnings, rating and feedback count, skills. Rates are hourly.',
     profileUrlPattern: /^https:\/\/www\.guru\.com\/freelancers\/[^/?#]+/i,
+    contact: { button: /^\s*(get a quote|contact( me)?|send (a )?message|message)\s*$/i, send: /^\s*(send( message| quote request)?|submit)\s*$/i },
   },
   // Fallback for operators without Upwork API access; named apart from the API source "upwork".
   // Same caveats as Fiverr: reading Upwork with automation is against its terms, so it is opt-in,

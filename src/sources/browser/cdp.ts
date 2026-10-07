@@ -1,5 +1,25 @@
+import { execFile } from 'node:child_process';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core';
 import type { Config } from '../../config';
+
+/**
+ * Shows or hides the HAAS Chrome window (macOS; a no-op elsewhere). Chrome runs hidden so nobody sees
+ * pages open; it is shown only while a site asks the operator for a human check.
+ */
+export function setChromeVisible(cdpUrl: string, visible: boolean): Promise<void> {
+  if (process.platform !== 'darwin') return Promise.resolve();
+  const port = new URL(cdpUrl).port || '9222';
+  return new Promise((resolve) => {
+    execFile('lsof', ['-ti', `tcp:${port}`, '-sTCP:LISTEN'], (err, out) => {
+      const pid = err ? '' : out.trim().split('\n')[0];
+      if (!pid) return resolve();
+      const script = visible
+        ? `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to true`
+        : `tell application "System Events" to set visible of (first process whose unix id is ${pid}) to false`;
+      execFile('osascript', ['-e', script], () => resolve());
+    });
+  });
+}
 
 // One CDP connection to the operator's Chrome, one reused tab, one page operation at a time.
 
@@ -59,7 +79,8 @@ export function withTab<T>(config: Config, fn: (page: Page) => Promise<T>): Prom
 
 // -------------------------------------------------------------- pacing
 
-let lastNavigation = 0;
+/** Last navigation per site (host), so each site sees human pace without one site slowing another. */
+const lastNavigation = new Map<string, number>();
 
 const abortable = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -78,12 +99,13 @@ const abortable = (ms: number, signal?: AbortSignal): Promise<void> =>
 
 export const sleep = abortable;
 
-/** Waits until 2-4 seconds have passed since the previous navigation (any site). */
-export async function paceNavigation(signal?: AbortSignal, rand: () => number = Math.random): Promise<void> {
+/** Waits until 2-4 seconds have passed since the previous navigation to the same site. */
+export async function paceNavigation(signal?: AbortSignal, rand: () => number = Math.random, url?: string): Promise<void> {
+  const host = url ? new URL(url).host : '*';
   const gap = 2000 + rand() * 2000;
-  const wait = lastNavigation + gap - Date.now();
+  const wait = (lastNavigation.get(host) ?? 0) + gap - Date.now();
   if (wait > 0) await abortable(wait, signal);
-  lastNavigation = Date.now();
+  lastNavigation.set(host, Date.now());
 }
 
 // -------------------------------------------------------------- reachability
@@ -127,6 +149,6 @@ export async function disconnect(): Promise<void> {
 export function resetForTests(): void {
   browser = tab = tabContext = undefined;
   tail = Promise.resolve();
-  lastNavigation = 0;
+  lastNavigation.clear();
   reach = { at: 0, ok: false };
 }

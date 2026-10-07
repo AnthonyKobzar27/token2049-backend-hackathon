@@ -89,7 +89,7 @@ describe('sites', () => {
     expect(queryFor(b)).toBe('design logo bakery');
     expect(SITES.fiverr!.searchUrl({ ...b, skills: ['logo design', 'branding'] })).toBe('https://www.fiverr.com/search/gigs?query=logo%20design%20branding');
     expect(SITES.guru!.searchUrl({ ...b, skills: ['web design'] })).toBe('https://www.guru.com/d/freelancers/skill/web-design/');
-    expect(SITES.peopleperhour!.searchUrl({ ...b, skills: ['python'] })).toContain('q=python');
+    expect(SITES.peopleperhour!.searchUrl({ ...b, skills: ['sat tutoring'] })).toBe('https://www.peopleperhour.com/services/sat+tutoring');
   });
   it('recognises gig and profile urls', () => {
     expect(SITES.fiverr!.profileUrlPattern.test('https://www.fiverr.com/ana_pop/design-a-modern-logo?x=1')).toBe(true);

@@ -2,7 +2,14 @@
 
 import type { Brief, Candidate, FreelancerProfile, Ms, Subscores, SuitabilityScore } from '../domain/types';
 import { distanceKm, matchPlace, placeLabel, profilePlace, profileTimezone, resolvePlace } from './geo';
+import { languageCode } from '../sources/http';
 import { DEFAULT_WEIGHTS, type Weights } from './weights';
+
+/** A language as a comparable key: its ISO code when known, else the lower-cased name. */
+const sameLanguage = (l: string): string => {
+  const t = l.trim().toLowerCase();
+  return /^[a-z]{2,3}$/.test(t) ? t : (languageCode(t) ?? t);
+};
 import { timingPhrase, timingScore } from './when';
 
 const BUDGET_TOLERANCE = 1.1;
@@ -59,8 +66,9 @@ export function dropReason(brief: Brief, profile: FreelancerProfile, q: Quote = 
   }
 
   if (brief.language && profile.languages && profile.languages.length > 0) {
-    const want = brief.language.toLowerCase();
-    if (!profile.languages.some((l) => l.toLowerCase() === want)) return 'language';
+    // "English", "english", "en" and "EN" are the same language on either side.
+    const want = sameLanguage(brief.language);
+    if (!profile.languages.some((l) => sameLanguage(l) === want)) return 'language';
   }
 
   if (locationFit(brief, profile).drop) return 'location';

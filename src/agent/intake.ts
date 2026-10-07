@@ -98,14 +98,13 @@ Rules:
 - If the task is not legitimate work for a freelancer (solving CAPTCHAs, bypassing a site's controls, fake reviews, anything illegal or harmful), return action "refuse" with a short, polite explanation in "message".
 - Fill every field; use "" or [] or null where not applicable. Write in the person's language.`;
 
-const STOPWORDS = new Set('a an and are as at be but by can do for from have i in is it me my need of on or please should that the this to want we with you your some someone'.split(' '));
 
 /** Deterministic brief used without an API key, or when the model fails. */
 export function fallbackBrief(history: IntakeTurn[], now: Ms = Date.now()): { brief: Brief; summary: string } {
   const task = history.find((t) => t.from === 'hirer')?.text.trim() ?? '';
   const all = history.filter((t) => t.from === 'hirer').map((t) => t.text).join(' ').toLowerCase();
-  const words = (all.match(/[\p{L}\p{N}+#.-]{3,}/gu) ?? []).filter((w) => !STOPWORDS.has(w));
-  const skills = [...new Set(words)].slice(0, 4);
+  // Skill words are picked by enrichBrief (no filler, days, times, budgets or place names).
+  const skills: string[] = [];
   const budget = /\$\s?(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s?(?:usd|dollars?)/.exec(all);
   const hours = /\b(\d+(?:\.\d+)?)\s?(?:hours?|hrs?|h)\b/.exec(all);
   const onSite = looksOnSite(all);
