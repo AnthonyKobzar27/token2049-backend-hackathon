@@ -108,6 +108,7 @@ describe('outreach to freelancers', () => {
   it('keeps relative days and times when the brief has no concrete When', () => {
     expect(taskForFreelancer({ task: 'Call the clinic tomorrow at 3pm', skills: [], remoteOk: true })).toBe('Call the clinic tomorrow at 3pm.');
     expect(taskForFreelancer({ task: 'Call the clinic tomorrow at 3pm', skills: [], remoteOk: true, when: { date: '2026-10-08' } })).toBe('Call the clinic at 3pm.');
+    expect(taskForFreelancer({ task: 'Math tutoring every Saturday, starting this Saturday', skills: [], remoteOk: true, when: { date: '2026-10-10' } })).toBe('Math tutoring every Saturday.');
   });
 
   it('drops payment-rail and agent sentences anywhere', () => {

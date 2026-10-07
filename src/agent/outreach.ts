@@ -33,9 +33,9 @@ const NAMES_ROLE = new RegExp(`^(?:an?|some)\\s+(?:[\\w-]+\\s+){0,3}?(?:${ROLE})
 /** "with an experienced SAT tutor" at the end of a clause: that is the reader, so it goes. */
 const WITH_ROLE = new RegExp(`\\s*,?\\s+(?:with|by|from)\\s+(?:an?|the|some)\\s+(?:[\\w-]+\\s+){0,3}?(?:${ROLE})\\b(?=\\s*(?:[,.;!?]|$))`, 'gi');
 
-/** Relative days, replaced by the concrete When line whenever the brief has a date. */
+/** Relative days, replaced by the concrete When line whenever the brief has a date ("every Saturday" is a schedule and stays). */
 const RELATIVE_DAY =
-  /\s*\b(?:the day after tomorrow|(?:today|tomorrow|tonight)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|weekend)|next\s+week|(?:on\s+|this\s+|next\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b/gi;
+  /\s*\b(?:the day after tomorrow|(?:today|tomorrow|tonight)(?:\s+(?:morning|afternoon|evening|night))?|this\s+(?:morning|afternoon|evening|weekend)|next\s+week|(?:on\s+|this\s+|next\s+)?(?<!every\s)(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b/gi;
 
 /** Clock times ("at 3pm", "from 2-4pm"), replaced by the When line whenever the brief has a time window. */
 const CLOCK_TIME =
@@ -71,6 +71,8 @@ export function cleanForFreelancer(text: string | undefined): string {
 /** Tidies spaces and punctuation left behind after phrases were cut out. */
 function tidy(text: string): string {
   return text
+    // A preposition left hanging where a day or time was cut ("starting this Saturday" -> "starting").
+    .replace(/[,;]?\s+(?:starting|from|on|at|by)\s*(?=[.,;!?]|$)/gi, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([.,!?;])/g, '$1')
     .replace(/[,;]+(?=[.!?]|$)/g, '')
