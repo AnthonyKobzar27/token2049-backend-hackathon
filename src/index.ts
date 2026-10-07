@@ -81,6 +81,12 @@ const escrow = createEscrowProvider({ store, config });
 const bookings = createBookingService({ store, bus, registry, escrow, gate, config });
 const delegate = createDelegator({ config, bus, classifier: createClassifier({ config }), buyer: createBuyer(config) });
 const jobs = createJobService({ store, bus, router, bookings, config, delegate });
+if (config.AI_DELEGATION !== 'off' && !config.AI_AGENT_URL && !config.MASUMI_REGISTRY_URL) {
+  console.warn(
+    '[delegate] AI-FIRST HAS NO AGENT SOURCE: every job goes straight to humans.\n' +
+    "[delegate] Set AI_AGENT_URL (a MIP-003 agent's base URL, e.g. pnpm demo:agent on :8790) or MASUMI_REGISTRY_URL to hire fellow agents first.",
+  );
+}
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
