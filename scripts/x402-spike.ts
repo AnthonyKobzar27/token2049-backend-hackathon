@@ -26,7 +26,8 @@ const chain = process.argv[2] === 'solana' ? 'solana' : process.argv[2] === 'car
 if (!chain) throw new Error('Usage: pnpm spike:x402 <cardano|solana> ["task text"]');
 const base = process.env.HAAS_URL ?? `http://localhost:${config.PORT}`;
 const task = process.argv[3] ?? 'Design a logo for a small coffee roaster';
-const body = JSON.stringify({ task, skills: ['logo design'], budgetUsd: 100, remoteOk: true });
+// Only the task text: HAAS reads skills, budget, time, place and language from it.
+const body = JSON.stringify({ task });
 const init = { method: 'POST', headers: { 'content-type': 'application/json' }, body };
 
 console.log(`== 1. unpaid request: POST ${base}/x402/route`);
