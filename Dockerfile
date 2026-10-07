@@ -2,6 +2,7 @@
 # Includes Python + uv and a pre-installed Fiverr MCP server, so Fiverr search works without a browser.
 # Browser-read sites (PeoplePerHour, Guru) and messaging sellers need the operator's logged-in Chrome,
 # which a server does not have: they are off here and those picks come back as links.
+FROM ghcr.io/astral-sh/uv:0.9 AS uv
 FROM node:22-slim
 
 RUN apt-get update \
@@ -10,7 +11,7 @@ RUN apt-get update \
 
 # uv / uvx, and the Fiverr MCP server installed once at build time (no download on the first search).
 # mcp<2: fiverr-mcp-server 0.1.x imports FastMCP, which mcp 2 renamed.
-COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /uvx /usr/local/bin/
+COPY --from=uv /uv /uvx /usr/local/bin/
 ENV UV_TOOL_DIR=/opt/uv/tools \
     UV_TOOL_BIN_DIR=/usr/local/bin \
     UV_PYTHON_INSTALL_DIR=/opt/uv/python
