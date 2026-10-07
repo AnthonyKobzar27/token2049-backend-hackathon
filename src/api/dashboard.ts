@@ -58,8 +58,12 @@ export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): 
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     const auth = req.headers.authorization;
-    if (auth?.startsWith('Bearer ')) {
-      const hash = sha256(auth.slice('Bearer '.length).trim());
+    if (auth) {
+      // Any Authorization header must carry a live token; a malformed scheme or
+      // casing variant must not slip through as "no token sent".
+      const secret = /^Bearer\s+(\S+)$/i.exec(auth.trim())?.[1];
+      if (!secret) return res.status(401).json({ error: 'malformed Authorization header' });
+      const hash = sha256(secret);
       const tokens = readTokens();
       const token = tokens.find((t) => t.hash === hash && !t.revoked);
       if (!token) return res.status(401).json({ error: 'invalid or revoked token' });
@@ -69,8 +73,10 @@ export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): 
     next();
   });
 
-  const fail = (res: Response, err: unknown, status = 400) =>
-    res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
+  const fail = (res: Response, err: unknown, status = 400) => {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(status === 400 && /not found/i.test(message) ? 404 : status).json({ error: message });
+  };
 
   const jobsNewestFirst = () => store.listJobs().slice().reverse();
 
@@ -88,7 +94,11 @@ export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): 
       },
       pendingApprovals: store.listApprovals({ status: 'pending' }).length,
       openBookings: store.listBookings().filter((b) => !['completed', 'cancelled', 'refunded'].includes(b.status)).length,
-      sources: registry.all().map((s) => ({ name: s.name, kind: s.kind, enabled: s.isEnabled() })),
+      // enabled() also applies the SOURCES allowlist, unlike per-source isEnabled().
+      sources: (() => {
+        const active = new Set(registry.enabled().map((s) => s.name));
+        return registry.all().map((s) => ({ name: s.name, kind: s.kind, enabled: active.has(s.name) }));
+      })(),
     });
   });
 
@@ -121,6 +131,10 @@ export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): 
   app.post('/api/jobs/:id/input', (req, res) => {
     const input = req.body as UserInput;
     if (!input || !['confirm', 'refine', 'cancel'].includes(input.action)) return fail(res, 'action must be confirm, refine or cancel');
+    if (input.action === 'confirm' && (typeof input.profileId !== 'string' || !input.profileId.trim()))
+      return fail(res, 'profileId is required to confirm a candidate');
+    if (input.action === 'refine' && (typeof input.feedback !== 'string' || !input.feedback.trim()))
+      return fail(res, 'feedback is required to refine the search');
     try {
       res.json(jobs.provideInput(req.params.id, input));
     } catch (err) {

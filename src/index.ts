@@ -76,7 +76,8 @@ const jobs = createJobService({ store, bus, router, bookings, config, delegate }
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, sources: registry.all().map((s) => ({ name: s.name, kind: s.kind, enabled: s.isEnabled() })) });
+  const active = new Set(registry.enabled().map((s) => s.name));
+  res.json({ ok: true, sources: registry.all().map((s) => ({ name: s.name, kind: s.kind, enabled: active.has(s.name) })) });
 });
 
 bounty.mount(app);
@@ -87,6 +88,16 @@ const dashboard = mountDashboard(app, { jobs, bookings, gate, registry, store, b
 if (escrow.buildDepositTransaction) mountSolanaPay(app, { store, escrow, config });
 mountIdentity(app, identity);
 mountVeridian(app, veridian, { publicUrl: config.PUBLIC_URL, ...(config.VERIDIAN_OOBI_BASE_URL ? { oobiBaseUrl: config.VERIDIAN_OOBI_BASE_URL } : {}), verifyTimeoutMs: config.VERIDIAN_VERIFY_TIMEOUT_MS, ...(config.VERIDIAN_ADMIN_TOKEN ? { adminToken: config.VERIDIAN_ADMIN_TOKEN } : {}) });
+
+// Body-parser and other middleware errors must answer in the API's JSON shape,
+// not Express's default HTML page with a stack trace.
+app.use((err: Error & { type?: string }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (res.headersSent) return next(err);
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: 'payload too large' });
+  if (err instanceof SyntaxError && 'body' in err) return res.status(400).json({ error: 'invalid JSON body' });
+  console.error('[http] unhandled error:', err.message);
+  res.status(500).json({ error: 'internal error' });
+});
 
 const telegram = createTelegram({ jobs, bookings, gate, policy, store, bus, config });
 const liaison = createLiaison({ store, bus, registry, gate, config });
@@ -111,7 +122,7 @@ bus.on((e) => {
 });
 
 const server = app.listen(config.PORT, () => {
-  console.log(`[haas] listening on ${config.PUBLIC_URL} (port ${config.PORT})`);
+  console.log(`[haas] listening on http://localhost:${config.PORT} (public URL: ${config.PUBLIC_URL})`);
   console.log(`[haas] sources: ${registry.enabled().map((s) => s.name).join(', ') || 'none enabled'}`);
   if (config.DEMO_MODE) console.log(`[haas] demo mode: pinned cache, ${config.DEMO_BUDGET_MS} ms budget (warm it with pnpm demo:warm)`);
   console.log(`[haas] AI-first: ${config.AI_DELEGATION}; agent: ${config.AI_AGENT_URL ?? (config.MASUMI_REGISTRY_URL ? 'registry search' : 'none')}`);

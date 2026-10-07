@@ -60,6 +60,8 @@ class Conversation:
         if not job:
             return "No shortlist is waiting on you."
         candidates = (self._haas.job_detail(job["id"]).get("shortlist") or {}).get("candidates", [])
+        if not candidates:
+            return "The current shortlist is empty — reply REFINE <feedback> or CANCEL."
         if not 1 <= n <= len(candidates):
             return f"Pick a number from 1 to {len(candidates)}."
         chosen = candidates[n - 1]

@@ -58,9 +58,16 @@ class Notifier:
         job = p["job"]
         if job["status"] not in ("completed", "failed"):
             return None
-        detail = (job.get("result") or {}).get("summary") or job.get("error") or ""
-        icon = "🏁" if job["status"] == "completed" else "❌"
-        return Notification(kind="result", text=f"{icon} Task {job['status']}: {job['brief']['task']}\n{detail}".rstrip())
+        result = job.get("result") or {}
+        detail = result.get("summary") or job.get("error") or ""
+        if job["status"] == "failed":
+            head = "❌ Task failed"
+        elif result.get("outcome") == "no_booking":
+            # Cancelled or ended without a hire; "completed" would overpromise.
+            head = "🛑 Task closed, nobody hired"
+        else:
+            head = "🏁 Task completed"
+        return Notification(kind="result", text=f"{head}: {job['brief']['task']}\n{detail}".rstrip())
 
     def _conversation_message(self, p: dict) -> Notification | None:
         m = p["message"]
