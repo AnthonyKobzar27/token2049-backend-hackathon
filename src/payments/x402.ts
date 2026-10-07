@@ -201,6 +201,9 @@ export const mountX402: MountX402 = (app: Express, deps: ApiDeps) => {
       })),
       description: 'HAAS routing: search freelancer platforms, rank candidates, book the one you confirm',
       mimeType: 'application/json',
+      // Without this the SDK derives the resource from the request host, which is
+      // the container's localhost behind a proxy; paid clients then follow a dead link.
+      resource: `${publicUrl}/x402/route`,
     },
   };
   app.use(paymentMiddleware(routes, server));

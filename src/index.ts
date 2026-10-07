@@ -71,6 +71,12 @@ const router = createRouter({ registry, suitability, bus, config, ...(signals ? 
 
 const policy = createPolicy({ store, config });
 const gate = createApprovalGate({ store, bus, policy, config });
+if (!config.TELEGRAM_OPERATOR_ID && !config.TELEGRAM_BOT_TOKEN && !config.MANUAL_APPROVALS) {
+  console.warn(
+    '[approvals] HEADLESS MODE: every approval (booking, outreach, release) is auto-granted.\n' +
+    '[approvals] Fine for local rehearsal; for anything real set TELEGRAM_BOT_TOKEN + TELEGRAM_OPERATOR_ID, or MANUAL_APPROVALS=true.',
+  );
+}
 const escrow = createEscrowProvider({ store, config });
 const bookings = createBookingService({ store, bus, registry, escrow, gate, config });
 const delegate = createDelegator({ config, bus, classifier: createClassifier({ config }), buyer: createBuyer(config) });
