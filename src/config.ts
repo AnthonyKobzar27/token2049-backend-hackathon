@@ -67,6 +67,9 @@ const schema = z.object({
   MANUAL_APPROVALS: bool(false),
   /** Extra browser origins allowed to call /api (the dashboard on another host). Localhost origins are always allowed. */
   DASHBOARD_ORIGINS: optional,
+  /** Require a Bearer token on /api even from loopback. Set this when a tunnel
+   * (ngrok, cloudflared) forwards from localhost: loopback trust is void there. */
+  DASHBOARD_REQUIRE_TOKEN: bool(false),
 
   FREELANCER_TOKEN: optional,
   FREELANCER_SANDBOX_TOKEN: optional,

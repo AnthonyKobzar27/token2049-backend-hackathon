@@ -82,7 +82,8 @@ export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): 
     // token: the hosted dashboard cannot send one (EventSource carries no headers), and on a
     // PaaS the connection arrives through a proxy, never from loopback.
     const trustedOrigin = !!origin && extraOrigins.has(origin);
-    if (!auth?.startsWith('Bearer ') && !isLoopback(req.socket.remoteAddress) && !trustedOrigin) {
+    const localTrust = isLoopback(req.socket.remoteAddress) && !config.DASHBOARD_REQUIRE_TOKEN;
+    if (!auth?.startsWith('Bearer ') && !localTrust && !trustedOrigin) {
       return res.status(401).json({ error: 'a Bearer token is required from other machines (POST /api/tokens on the HAAS host)' });
     }
     if (auth?.startsWith('Bearer ')) {
