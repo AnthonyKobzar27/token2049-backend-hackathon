@@ -32,3 +32,5 @@ class Notification:
 class Inbound:
     id: str
     text: str
+    """Channel handle of whoever sent it, e.g. "+14155551234"."""
+    sender: str = "unknown"

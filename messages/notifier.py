@@ -27,6 +27,9 @@ class Notifier:
             if job["id"] in self._announced:
                 return None
             self._announced.add(job["id"])
+            # Bridge-created jobs were acknowledged in-conversation already.
+            if str(job.get("clientRef", "")).startswith("imessage:"):
+                return None
             return Notification(kind="info", text=f"🔎 On it: {job['brief']['task']}")
         if job["status"] not in ("completed", "failed"):
             return None

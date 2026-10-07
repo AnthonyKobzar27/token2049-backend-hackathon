@@ -32,8 +32,11 @@ class HaasClient:
     def job_detail(self, job_id: str) -> dict:
         return self._get(f"/api/jobs/{job_id}")
 
-    def create_job(self, task: str) -> dict:
-        return self._post("/api/jobs", {"brief": {"task": task}})
+    def create_job(self, task: str, client_ref: str | None = None) -> dict:
+        body: dict = {"brief": {"task": task}}
+        if client_ref:
+            body["clientRef"] = client_ref
+        return self._post("/api/jobs", body)
 
     def provide_input(self, job_id: str, payload: dict) -> dict:
         return self._post(f"/api/jobs/{job_id}/input", payload)

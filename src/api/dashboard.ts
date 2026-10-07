@@ -110,7 +110,10 @@ export function mountDashboard(app: Express, deps: DashboardApiDeps): { stop(): 
     const partial = req.body?.brief as Partial<Brief> | undefined;
     if (!partial || typeof partial.task !== 'string' || !partial.task.trim()) return fail(res, 'brief.task is required');
     const brief: Brief = { ...partial, task: partial.task.trim(), skills: partial.skills ?? [], remoteOk: partial.remoteOk ?? true };
-    const job = jobs.startJob({ brief, client: 'local', clientRef: 'dashboard' });
+    // External clients (the iMessage bridge) tag jobs with their own ref,
+    // e.g. "imessage:+1415...", so notifications can be routed per requester.
+    const clientRef = typeof req.body?.clientRef === 'string' && req.body.clientRef.trim() ? req.body.clientRef.trim() : 'dashboard';
+    const job = jobs.startJob({ brief, client: 'local', clientRef });
     res.status(201).json(job);
   });
 
