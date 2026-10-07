@@ -83,11 +83,22 @@ export function createDemoStack(opts: { config: Config; workers: WorkerInput[]; 
     gate,
     bounty,
     listen: (port: number) =>
-      new Promise<string>((resolve) => {
-        server = app.listen(port, () => {
-          const addr = server!.address();
-          resolve(`http://localhost:${typeof addr === 'object' && addr ? addr.port : port}`);
-        });
+      new Promise<string>((resolve, reject) => {
+        // Express 5 reports a failed bind (e.g. EADDRINUSE: a dev server already on this port)
+        // through the callback; ignoring it would leave every request going to that other server.
+        const start = (p: number, mayRetry: boolean): void => {
+          const s = app.listen(p, (err?: Error) => {
+            const addr = s.address();
+            if (err || addr === null) {
+              if (!mayRetry) return reject(err ?? new Error(`could not listen on port ${p}`));
+              console.error(`[demo] port ${p} is in use (another HAAS running?); using a free port instead`);
+              return start(0, false);
+            }
+            server = s;
+            resolve(`http://localhost:${typeof addr === 'object' ? addr.port : p}`);
+          });
+        };
+        start(port, true);
       }),
     async close() {
       clearInterval(timer);
