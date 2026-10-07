@@ -62,6 +62,7 @@ Nothing binding happens without a person.
 - **Check-in before booking.** You confirm a candidate, ask for other options, or change the brief.
 - **Approval for binding actions.** Booking, paying, accepting a delivery, asking for a revision and cancelling each wait for approval.
 - **Quality check before payment.** No escrow is released until the delivery passes QA. When the model is slow, unavailable or unsure, a person decides.
+- **You release the money.** On Telegram the hirer sees the QA verdict and taps `Release $X` or `Ask for a fix` (with a note for the freelancer). The operator can answer too; the first answer wins.
 - **Check-ins after booking.** HAAS answers the worker's routine questions from the brief and relays the rest to you.
 
 ## Sources
@@ -156,7 +157,7 @@ Not yet run against the live service:
 
 - **Solana escrow program.** It compiles and its IDL is checked, but it is not deployed yet, so `SOLANA_ESCROW_PROGRAM_ID` is a placeholder. See `programs/haas-escrow/README.md`.
 - **The paid Masumi job.** The payment service setup in `infra/masumi` has not been run. The live runbook is [docs/LIVE_CARDANO_PAYMENT.md](docs/LIVE_CARDANO_PAYMENT.md).
-- **Others.** Hiring a real Masumi AI agent, the Telegram bot, the language-model paths, x402, Upwork, Prolific, Veridian, and reputation minting on Preprod.
+- **Others.** Hiring a real Masumi AI agent, the Telegram bot on real phones (setup in [docs/MANUAL_TESTING.md](docs/MANUAL_TESTING.md) 2.2), the language-model paths, x402, Upwork, Prolific, Veridian, and reputation minting on Preprod.
 
 ## Honest limits
 

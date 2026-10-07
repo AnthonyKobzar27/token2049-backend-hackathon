@@ -146,6 +146,8 @@ describe('ReputationMinter', () => {
   it('records a completed, verified job on chain: datum update plus a receipt NFT with links', async () => {
     const { store, bus, chain, registry, minter } = setup();
     registry.bindWallet('fake:w1', W1);
+    const recorded: unknown[] = [];
+    bus.on((e) => { if (e.type === 'reputation.recorded') recorded.push(e); });
     minter.start();
     complete(store, bus, booking('bk1'));
     expect(minter.task('bk1')?.status).toBe('waiting_verification');
@@ -156,6 +158,9 @@ describe('ReputationMinter', () => {
 
     const task = minter.task('bk1')!;
     expect(task.status).toBe('done');
+    // The channels hear about the receipt once, with the transaction and the receipt unit.
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({ workerId: 'fake:w1', bookingId: 'bk1', jobId: 'job_bk1', txHash: task.txHash, receiptUnit: task.receiptUnit, jobsCompleted: 1, avgRating: 5 });
     expect(chain.txs.map((t) => t.kind)).toEqual(['mint', 'update']);
     const cred = registry.credentialOf('fake:w1')!;
     const ref = await chain.readReference(cred.assetName);

@@ -4,6 +4,7 @@ import { createIntake, type Intake, type IntakeTurn } from '../agent/intake';
 import { newId, now } from '../domain/ids';
 import type { CreateTelegram, TelegramDeps } from '../domain/ports';
 import type { HaasEvent, Job } from '../domain/types';
+import { explorer } from '../identity/cip68';
 import {
   approvalRequest,
   bookingsList,
@@ -16,8 +17,11 @@ import {
   escrowInstructions,
   escrowTimeoutLine,
   escrowLine,
+  hirerApprovalRequest,
   jobResult,
+  jobsStatus,
   parseCallback,
+  reputationLine,
   shortlistHeader,
   verificationLine,
 } from './format';
@@ -36,14 +40,21 @@ export interface TgApi {
   clearKeyboard(chatId: string, messageId: number): Promise<void>;
 }
 
+export type ExtensionSend = (chatId: string, html: string, buttons?: Button[][]) => Promise<unknown>;
+
 /**
  * Extra command sets (e.g. the bounty board's worker commands) that share this bot but stay
  * out of the hirer flow. Handlers return an HTML reply, or undefined for no reply.
  */
 export interface TelegramExtension {
   commands: Record<string, (ctx: { chatId: string; userId: string; args: string }) => Promise<string | undefined>>;
-  /** Called once the bot runs, with a sender for proactive messages (HTML). */
-  onStart?(send: (chatId: string, html: string) => Promise<unknown>): void;
+  /**
+   * Inline-button handlers by callback-data prefix (the part before the first ':'), e.g. `k` for
+   * "k:<bountyCode>". Prefixes used by the hirer flow (c r x a d s p) are taken. Returns the HTML reply.
+   */
+  callbacks?: Record<string, (ctx: { chatId: string; userId: string; data: string }) => Promise<string | undefined>>;
+  /** Called once the bot runs, with a sender for proactive messages (HTML, optional buttons). */
+  onStart?(send: ExtensionSend): void;
   onStop?(): void;
 }
 const extensions: TelegramExtension[] = [];
@@ -54,9 +65,24 @@ export function registerTelegramExtension(ext: TelegramExtension): void {
 const EDIT_INTERVAL_MS = 1500;
 const START_TEXT = [
   '<b>HAAS</b>: Human as a Service, an open router for freelancers.',
-  'Tell me what you need done. I search several freelancer platforms, rank the best fits with reasons, and check with you before anything is booked.',
-  'Your budget is held in escrow, and afterwards I keep you and the freelancer informed.',
+  'Tell me what you need done. I search Fiverr and similar platforms, rank the best fits with reasons, and check with you before anything is booked.',
+  'Your budget is held in escrow until the work passes a quality check, and afterwards I keep you and the freelancer informed.',
+  '',
+  'Commands: /status for your jobs, /cancel to stop the current one, /help for this text.',
 ].join('\n');
+/** Commands shown in Telegram's menu for everyone; the operator and worker sets stay out of it. */
+export const HIRER_COMMANDS = [
+  { command: 'start', description: 'What HAAS does' },
+  { command: 'status', description: 'Your current jobs' },
+  { command: 'cancel', description: 'Stop the current search' },
+  { command: 'help', description: 'Help' },
+];
+export const OPERATOR_COMMANDS = [
+  { command: 'bookings', description: 'Open bookings' },
+  { command: 'accept', description: '/accept <bookingId>: accept a delivery' },
+  { command: 'revise', description: '/revise <bookingId> <text>: ask for a revision' },
+  { command: 'cancelbooking', description: '/cancelbooking <bookingId> <reason>' },
+];
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -66,6 +92,8 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
   const intake = intakeOverride ?? createIntake({ config });
   const operatorId = config.TELEGRAM_OPERATOR_ID;
   const isOperator = (userId: string | number | undefined) => operatorId !== undefined && String(userId) === operatorId;
+  const publicUrl = config.PUBLIC_URL.replace(/\/$/, '');
+  const cardano = explorer(config.CARDANO_NETWORK);
 
   const stateKey = (chat: string) => `tg:state:${chat}`;
   const getState = (chat: string) => store.getKv(stateKey(chat)) || 'idle';
@@ -103,8 +131,58 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
     await api.send(chat, START_TEXT);
   }
 
+  const OPEN: Job['status'][] = ['awaiting_payment', 'awaiting_input', 'running'];
+  const myJobs = (chat: string) => store.listJobs({ client: 'telegram', clientRef: chat }).sort((a, b) => b.createdAt - a.createdAt);
+
+  /** Hirer commands. Returns the HTML reply. */
+  async function onHirerCommand(chat: string, command: string): Promise<string> {
+    switch (command) {
+      case 'help':
+        return START_TEXT;
+      case 'status': {
+        const open = myJobs(chat).filter((j) => OPEN.includes(j.status));
+        const recent = open.length ? open : myJobs(chat).slice(0, 3);
+        return jobsStatus(recent);
+      }
+      case 'cancel': {
+        const state = getState(chat);
+        setState(chat, 'idle');
+        writeHistory(chat, []);
+        const job = myJobs(chat).find((j) => j.status === 'awaiting_input');
+        if (job) {
+          try {
+            jobs.provideInput(job.id, { action: 'cancel' });
+            return 'Cancelled. Tell me when you need something else.';
+          } catch (err) {
+            return `Could not cancel: ${esc(errText(err))}`;
+          }
+        }
+        if (state !== 'idle') return 'Okay, forget that. What do you need done?';
+        const running = myJobs(chat).find((j) => j.status === 'running');
+        return running ? 'A search or booking is in progress; it cannot be stopped from here yet. Ask the operator if a booking must be cancelled.' : 'Nothing to cancel.';
+      }
+      default:
+        return 'Unknown command. /help lists what I can do.';
+    }
+  }
+
+  /** Resolves a denial, with the note the person typed (or none). */
+  function denyWithNote(chat: string, approvalId: string, note: string | undefined, by: string) {
+    setState(chat, 'idle');
+    const a = store.getApproval(approvalId);
+    if (!a || a.status !== 'pending') return 'That approval is already settled.';
+    gate.resolve(approvalId, { approved: false, by, ...(note && { note }) });
+    return a.action === 'accept' ? `Noted. I will ask the freelancer for a fix${note ? ' and pass your note on' : ''}.` : 'Denied.';
+  }
+
   async function onText(chat: string, text: string) {
     const state = getState(chat);
+
+    if (state.startsWith('deny_note:')) {
+      const [approvalId, by] = state.slice('deny_note:'.length).split('|');
+      await api.send(chat, denyWithNote(chat, approvalId!, text.trim() || undefined, by || chat));
+      return;
+    }
 
     if (state === 'awaiting_refine_feedback') {
       const job = store.listJobs({ client: 'telegram', clientRef: chat }).sort((a, b) => b.createdAt - a.createdAt)[0];
@@ -165,7 +243,28 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
 
   // --------------------------------------------------------------- buttons
 
+  /** The hirer may answer release and revision approvals for their own job; the operator may answer any. */
+  const mayDecide = (chat: string, userId: string, approvalId: string): boolean => {
+    if (isOperator(userId)) return true;
+    const a = store.getApproval(approvalId);
+    if (!a || (a.action !== 'accept' && a.action !== 'revise') || !a.jobId) return false;
+    return chatOf(store.getJob(a.jobId)) === chat;
+  };
+
   async function onCallback(chat: string, userId: string, callbackId: string, data: string, messageId?: number) {
+    // Extension buttons first (e.g. the worker's "Claim" button, prefix k).
+    const prefix = data.split(':')[0] ?? '';
+    const ext = extensions.find((e) => e.callbacks?.[prefix]);
+    if (ext) {
+      try {
+        const reply = await ext.callbacks![prefix]!({ chatId: chat, userId, data });
+        await api.answer(callbackId);
+        if (reply) await api.send(chat, reply);
+      } catch (err) {
+        await api.answer(callbackId, errText(err).slice(0, 180));
+      }
+      return;
+    }
     const cb = parseCallback(data);
     if (!cb) return api.answer(callbackId, 'Unknown action');
     try {
@@ -194,12 +293,35 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
           jobs.provideInput(job.id, { action: 'cancel' });
           return api.answer(callbackId, 'Cancelled');
         }
-        case 'approve':
-        case 'deny': {
-          if (!isOperator(userId)) return api.answer(callbackId, 'Operator only');
-          gate.resolve(cb.approvalId, { approved: cb.kind === 'approve', by: userId });
+        case 'approve': {
+          if (!mayDecide(chat, userId, cb.approvalId)) return api.answer(callbackId, isOperator(userId) ? 'Not available' : 'Not your job');
+          const a = store.getApproval(cb.approvalId);
+          if (!a || a.status !== 'pending') return api.answer(callbackId, 'Already settled');
+          gate.resolve(cb.approvalId, { approved: true, by: isOperator(userId) ? userId : `hirer:${chat}` });
           if (messageId !== undefined) await api.clearKeyboard(chat, messageId);
-          return api.answer(callbackId, cb.kind === 'approve' ? 'Approved' : 'Denied');
+          return api.answer(callbackId, a.action === 'accept' ? 'Releasing the payment' : 'Approved');
+        }
+        case 'deny': {
+          if (!mayDecide(chat, userId, cb.approvalId)) return api.answer(callbackId, isOperator(userId) ? 'Not available' : 'Not your job');
+          const a = store.getApproval(cb.approvalId);
+          if (!a || a.status !== 'pending') return api.answer(callbackId, 'Already settled');
+          if (messageId !== undefined) await api.clearKeyboard(chat, messageId);
+          // The reason becomes the revision request (accept) or the cancellation note (book): ask for it.
+          const by = isOperator(userId) ? userId : `hirer:${chat}`;
+          setState(chat, `deny_note:${cb.approvalId}|${by}`);
+          await api.answer(callbackId);
+          const prompt = a.action === 'accept' ? 'What should the freelancer fix? Reply with a short note for them, or skip.' : 'Why? Reply with a short note, or skip.';
+          await api.send(chat, prompt, [[{ text: 'Skip', data: callbackData({ kind: 'skip_note', approvalId: cb.approvalId }) }]]);
+          return;
+        }
+        case 'skip_note': {
+          if (!mayDecide(chat, userId, cb.approvalId)) return api.answer(callbackId, 'Not your job');
+          if (messageId !== undefined) await api.clearKeyboard(chat, messageId);
+          const state = getState(chat);
+          const by = state.startsWith(`deny_note:${cb.approvalId}|`) ? state.split('|')[1] : isOperator(userId) ? userId : `hirer:${chat}`;
+          await api.answer(callbackId);
+          await api.send(chat, denyWithNote(chat, cb.approvalId, undefined, by || chat));
+          return;
         }
         case 'pause': {
           if (!isOperator(userId)) return api.answer(callbackId, 'Operator only');
@@ -247,6 +369,8 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
   const status = new Map<string, { chat: string; messageId?: number; lastEdit: number; text: string; timer?: ReturnType<typeof setTimeout>; sending?: Promise<void> }>();
   const lastBookingStatus = new Map<string, string>();
   const lastEscrowStatus = new Map<string, string>();
+  /** Where each open approval was asked, so the buttons can be removed once it is settled. */
+  const approvalMessages = new Map<string, { chat: string; messageId: number }[]>();
 
   function progress(jobId: string, chat: string, message: string) {
     const text = `⏳ ${esc(message)}`;
@@ -334,7 +458,7 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
               console.error('[telegram] QR failed:', errText(err));
             }
           }
-          await api.send(chat, escrowInstructions(e, config.SOLANA_RPC_URL));
+          await api.send(chat, escrowInstructions(e, config.SOLANA_RPC_URL, e.payUrl ? `${publicUrl}/pay/${e.bookingId}` : undefined));
         } else {
           const line = escrowLine(e);
           if (line) await api.send(chat, line);
@@ -368,9 +492,37 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
         return;
       }
       case 'approval.requested': {
-        if (!operatorId) return;
         const a = event.approval;
-        await api.send(operatorId, approvalRequest(a), [[{ text: 'Approve', data: callbackData({ kind: 'approve', approvalId: a.id }) }, { text: 'Deny', data: callbackData({ kind: 'deny', approvalId: a.id }) }]]);
+        const job = a.jobId ? store.getJob(a.jobId) : null;
+        const hirerChat = chatOf(job);
+        const buttons = (approve: string, deny: string) => [[{ text: approve, data: callbackData({ kind: 'approve', approvalId: a.id }) }, { text: deny, data: callbackData({ kind: 'deny', approvalId: a.id }) }]];
+        const sentTo: { chat: string; messageId: number }[] = [];
+        // The hirer answers release and revision questions about their own job ("confirm before release").
+        const hirer = hirerChat ? hirerApprovalRequest(a, a.bookingId ? store.getBooking(a.bookingId) : null) : null;
+        if (hirerChat && hirer) {
+          const id = await api.send(hirerChat, hirer.text, buttons(hirer.approve, hirer.deny));
+          if (id !== undefined) sentTo.push({ chat: hirerChat, messageId: id });
+        }
+        // The operator sees every approval, once (an operator testing as the hirer gets the hirer's version).
+        if (operatorId && !(hirer && hirerChat === operatorId)) {
+          const id = await api.send(operatorId, approvalRequest(a, job), buttons('Approve', 'Deny'));
+          if (id !== undefined) sentTo.push({ chat: operatorId, messageId: id });
+        }
+        if (sentTo.length) approvalMessages.set(a.id, sentTo);
+        return;
+      }
+      case 'approval.resolved': {
+        // First answer wins: take the buttons off every copy of the question.
+        const copies = approvalMessages.get(event.approval.id) ?? [];
+        approvalMessages.delete(event.approval.id);
+        for (const c of copies) await api.clearKeyboard(c.chat, c.messageId);
+        return;
+      }
+      case 'reputation.recorded': {
+        const chat = chatOfJob(event.jobId);
+        const line = reputationLine(event, cardano, event.workerId.split(':').pop());
+        if (chat) await api.send(chat, line);
+        if (operatorId && operatorId !== chat) await api.send(operatorId, `${line}\nBooking: <code>${esc(event.bookingId)}</code>`);
         return;
       }
       case 'verification.completed': {
@@ -392,6 +544,7 @@ export function createController(deps: TelegramDeps, api: TgApi, intakeOverride?
     onStart,
     onText,
     onCallback,
+    onHirerCommand,
     onOperatorCommand,
     /** Subscribed to the bus: never throws. */
     onEvent: (event: HaasEvent) => { void safe(`event ${event.type}`, () => onEvent(event)); },
@@ -468,7 +621,10 @@ export const createTelegram: CreateTelegram = (deps) => {
       unsubscribe = bus.on(c.onEvent);
 
       b.command('start', (ctx) => c.onStart(String(ctx.chat.id)));
-      for (const cmd of ['bookings', 'accept', 'revise', 'cancelbooking']) {
+      for (const cmd of ['status', 'cancel', 'help']) {
+        b.command(cmd, async (ctx) => api.send(String(ctx.chat.id), await c.onHirerCommand(String(ctx.chat.id), cmd)));
+      }
+      for (const { command: cmd } of OPERATOR_COMMANDS) {
         b.command(cmd, async (ctx) => {
           const reply = await c.onOperatorCommand(String(ctx.from?.id), cmd, ctx.match);
           await api.send(String(ctx.chat.id), reply);
@@ -481,7 +637,14 @@ export const createTelegram: CreateTelegram = (deps) => {
             if (reply) await api.send(String(ctx.chat.id), reply);
           });
         }
-        ext.onStart?.((chatId, html) => api.send(chatId, html));
+        ext.onStart?.((chatId, html, buttons) => api.send(chatId, html, buttons));
+      }
+      // The command menu: hirer commands for everyone, the operator's in their own chat.
+      b.api.setMyCommands(HIRER_COMMANDS).catch((err) => log('setMyCommands', err));
+      if (config.TELEGRAM_OPERATOR_ID) {
+        b.api
+          .setMyCommands([...HIRER_COMMANDS, ...OPERATOR_COMMANDS], { scope: { type: 'chat', chat_id: Number(config.TELEGRAM_OPERATOR_ID) } })
+          .catch((err) => log('setMyCommands (operator)', err));
       }
       b.on('message:text', async (ctx) => {
         if (ctx.message.text.startsWith('/')) return;

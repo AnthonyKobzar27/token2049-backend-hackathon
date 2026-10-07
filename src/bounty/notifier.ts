@@ -56,8 +56,13 @@ export function createConsoleNotifier(log: (line: string) => void = (l) => conso
  * Telegram: sends (HTML) through whatever bot is running. `send` is bound when the bot starts,
  * so the notifier can be created before the bot (until then it reports unreachable).
  */
-export function createTelegramWorkerNotifier(): WorkerNotifier & { bind(send: ((chatId: string, text: string) => Promise<unknown>) | undefined): void } {
-  let send: ((chatId: string, text: string) => Promise<unknown>) | undefined;
+type TelegramSend = (chatId: string, html: string, buttons?: { text: string; data: string }[][]) => Promise<unknown>;
+
+/** Callback data of the worker's "Claim" button; handled by the worker extension (src/bounty/telegram.ts). */
+export const claimCallback = (code: string): string => `k:${code}`;
+
+export function createTelegramWorkerNotifier(): WorkerNotifier & { bind(send: TelegramSend | undefined): void } {
+  let send: TelegramSend | undefined;
   return {
     channel: 'telegram',
     bind(fn) {
@@ -66,8 +71,9 @@ export function createTelegramWorkerNotifier(): WorkerNotifier & { bind(send: ((
     canReach: (w) => Boolean(send && w.contact.telegramId),
     async notify(worker, notice) {
       if (!send || !worker.contact.telegramId) return;
-      const tail = notice.kind === 'offer' ? `\n\nReply /claim ${notice.bounty.code} to take it.` : notice.kind === 'claimed' || notice.kind === 'revision' ? `\n\nWhen done: /submit ${notice.bounty.code} ${submitExample(notice.bounty)}` : '';
-      await send(worker.contact.telegramId, esc(`${notice.text}${notice.url ? `\n${notice.url}` : ''}${tail}`));
+      const tail = notice.kind === 'offer' ? `\n\nTap Claim, or reply /claim ${notice.bounty.code}.` : notice.kind === 'claimed' || notice.kind === 'revision' ? `\n\nWhen done: /submit ${notice.bounty.code} ${submitExample(notice.bounty)}` : '';
+      const buttons = notice.kind === 'offer' ? [[{ text: `Claim ${notice.bounty.code}`, data: claimCallback(notice.bounty.code) }]] : undefined;
+      await send(worker.contact.telegramId, esc(`${notice.text}${notice.url ? `\n${notice.url}` : ''}${tail}`), buttons);
     },
   };
 }

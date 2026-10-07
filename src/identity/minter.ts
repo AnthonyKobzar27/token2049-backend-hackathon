@@ -9,8 +9,8 @@ import { canonicalJson, resultHash } from '../masumi/hash';
 import { resultString } from '../masumi/watcher';
 import { applyJob, cip20Message, credentialDatumFields, receiptAssetName, receiptMetadata, reputationFromFields } from './cip68';
 import type { IdentityRegistry } from './registry';
-import type { JobReceipt, VerificationEvent } from './types';
-import { isPaymentCollectedEvent, isVerificationEvent } from './types';
+import type { JobReceipt, Reputation, VerificationEvent } from './types';
+import { avgRating, isPaymentCollectedEvent, isVerificationEvent } from './types';
 
 export type MintTaskStatus = 'waiting_verification' | 'waiting_wallet' | 'queued' | 'done' | 'rejected' | 'failed';
 
@@ -182,6 +182,16 @@ export function createReputationMinter(
     return {};
   }
 
+  /** Tells the channels (Telegram) that the receipt is on chain. Never throws. */
+  function announce(task: MintTask, txHash: string, receiptUnit: string | undefined, rep: Reputation): void {
+    try {
+      const rating = avgRating(rep);
+      bus.emit({ type: 'reputation.recorded', workerId: task.workerId, bookingId: task.bookingId, jobId: task.jobId, txHash, ...(receiptUnit && { receiptUnit }), jobsCompleted: rep.jobsCompleted, ...(rating !== undefined && { avgRating: rating }) });
+    } catch (err) {
+      console.error('[identity] reputation.recorded listeners failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
   async function process(task: MintTask): Promise<void> {
     const wallet = registry.walletOf(task.workerId);
     if (!wallet) {
@@ -225,6 +235,7 @@ export function createReputationMinter(
         const receipt: JobReceipt = { ...base, txHash: ref.txHash, ...(receiptUnit ? { receiptUnit } : {}) };
         registry.recordJob(task.workerId, { ...before, lastUpdateTx: ref.txHash }, receipt);
         save({ ...task, status: 'done', txHash: ref.txHash, ...(receiptUnit ? { receiptUnit } : {}), error: undefined });
+        announce(task, ref.txHash, receiptUnit, before);
         return;
       }
 
@@ -242,6 +253,7 @@ export function createReputationMinter(
       registry.recordJob(task.workerId, { ...after, lastUpdateTx: txHash }, receipt);
       save({ ...task, status: 'done', txHash, ...(receiptUnit ? { receiptUnit } : {}), error: undefined });
       console.log(`[identity] reputation for ${task.workerId} updated: tx ${txHash}`);
+      announce(task, txHash, receiptUnit, after);
       // The next update spends this output, so wait for it before releasing the queue.
       if (!(await chain.awaitTx(txHash, confirmTimeout))) console.warn(`[identity] tx ${txHash} not confirmed after ${confirmTimeout} ms`);
     });

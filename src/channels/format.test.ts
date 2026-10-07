@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Approval, Booking, Candidate, EscrowRecord, Shortlist } from '../domain/types';
-import { approvalRequest, bookingStatusLine, verificationLine, callbackData, candidateCard, chunk, esc, escrowInstructions, escrowTimeoutLine, parseCallback, shortlistHeader } from './format';
+import type { Approval, Booking, Candidate, EscrowRecord, Job, Shortlist } from '../domain/types';
+import { approvalRequest, bookingStatusLine, verificationLine, callbackData, candidateCard, chunk, esc, escrowInstructions, escrowLine, escrowTimeoutLine, hirerApprovalRequest, jobResult, jobsStatus, parseCallback, reputationLine, shortlistHeader } from './format';
 
 const candidate: Candidate = {
   profile: {
@@ -33,6 +33,7 @@ describe('format', () => {
       { kind: 'cancel', jobId: 'job_k3f9x2a1bq' },
       { kind: 'approve', approvalId: 'apr_k3f9x2a1bq' },
       { kind: 'deny', approvalId: 'apr_k3f9x2a1bq' },
+      { kind: 'skip_note', approvalId: 'apr_k3f9x2a1bq' },
       { kind: 'pause', bookingId: 'bkg_k3f9x2a1bq' },
     ] as const;
     for (const cb of cbs) {
@@ -91,8 +92,84 @@ describe('format', () => {
     expect(bookingStatusLine({ ...b, status: 'in_progress' })).toBeNull();
   });
 
-  it('approval request escapes', () => {
+  it('approval request escapes and names the job', () => {
     expect(approvalRequest({ action: 'book', summary: '<x>' } as Approval)).toContain('&lt;x&gt;');
+    const job = { client: 'masumi', brief: { task: 'Call the clinic' } } as Job;
+    expect(approvalRequest({ action: 'book', summary: 's' } as Approval, job)).toContain('Job from masumi: Call the clinic');
+  });
+
+  it('hirer approval text: release with the QA verdict, revise, nothing for book', () => {
+    const booking = { priceUsd: 25.5, verification: { verdict: 'pass', score: 0.9, summary: 'Looks <good>' } } as Booking;
+    const rel = hirerApprovalRequest({ action: 'accept', summary: 's' } as Approval, booking)!;
+    expect(rel.text).toContain('Quality check passed (score 90/100): Looks &lt;good&gt;');
+    expect(rel.approve).toBe('Release $25.50');
+    expect(rel.deny).toBe('Ask for a fix');
+    const rev = hirerApprovalRequest({ action: 'revise', summary: 's', detail: 'QA failed' } as Approval, null)!;
+    expect(rev.text).toContain('QA failed');
+    expect(rev.approve).toBe('Send fix request');
+    expect(hirerApprovalRequest({ action: 'book', summary: 's' } as Approval, booking)).toBeNull();
+  });
+
+  it('escrow lines carry amount, payee, result hash and the right transaction link', () => {
+    const txs = [
+      { kind: 'deposit', signature: 'd', url: 'https://x/tx/dep', at: 1 },
+      { kind: 'release', signature: 'r', url: 'https://x/tx/rel', at: 2 },
+    ] as const;
+    const base = { amount: 25, currency: 'USDC', payer: 'PayerWallet1234567890', payee: 'PayeeWallet1234567890', resultHash: 'abcdef1234567890', explorerUrl: 'https://x/tx/old', txs: [...txs] } as unknown as EscrowRecord;
+    expect(escrowLine({ ...base, status: 'funded' })).toBe('Escrow funded with 25 USDC from Paye…7890. <a href="https://x/tx/dep">View transaction</a>'.replace('Paye…7890', 'Paye…7890').replace('from Paye', 'from Paye'));
+    const released = escrowLine({ ...base, status: 'released' })!;
+    expect(released).toContain('Released 25 USDC to Paye…7890');
+    expect(released).toContain('<code>abcdef…567890</code>');
+    expect(released).toContain('href="https://x/tx/rel"');
+    const refunded = escrowLine({ ...base, status: 'refunded', txs: [...txs, { kind: 'refund', signature: 'f', url: 'https://x/tx/ref', at: 3 }] })!;
+    expect(refunded).toContain('Refunded 25 USDC to Paye…7890');
+    expect(refunded).toContain('href="https://x/tx/ref"');
+    // Without a per-transaction list the single explorer URL is used.
+    expect(escrowLine({ ...base, status: 'released', txs: undefined })).toContain('href="https://x/tx/old"');
+    expect(escrowLine({ ...base, status: 'awaiting_deposit' })).toBeNull();
+  });
+
+  it('escrow instructions link the pay page and show the solana URL as copyable text', () => {
+    const e = { amount: 5, currency: 'USDC', payUrl: 'solana:https://h.test/solana-pay/escrow/bk' } as EscrowRecord;
+    const text = escrowInstructions(e, 'x', 'https://h.test/pay/bk');
+    expect(text).toContain('<a href="https://h.test/pay/bk">open in your wallet</a>');
+    expect(text).toContain('<code>solana:https://h.test/solana-pay/escrow/bk</code>');
+    expect(escrowInstructions(e, 'x')).not.toContain('/pay/');
+  });
+
+  it('job result leads with the work, shows the hash and the AI agent', () => {
+    const human = { status: 'completed', result: { outcome: 'delivered', summary: 'Bounty done by Ann', work: { summary: 'Booked: Thursday 3pm, ref 88213', data: { date: '2026-10-09', time: '15:00' } }, verifiedResult: { hash: 'a'.repeat(64), payload: 'p' }, priceUsd: 3 } } as unknown as Job;
+    const text = jobResult(human);
+    expect(text.startsWith('<b>Booked: Thursday 3pm, ref 88213</b>')).toBe(true);
+    expect(text).toContain('date: 2026-10-09');
+    expect(text).toContain(`<code>${'a'.repeat(6)}…${'a'.repeat(6)}</code>`);
+    const ai = { status: 'completed', result: { outcome: 'delivered', summary: 'Done by an AI agent', path: 'ai', agent: { name: 'Summariser', paid: true }, output: 'x'.repeat(2000) } } as unknown as Job;
+    const aiText = jobResult(ai);
+    expect(aiText).toContain('Done by AI agent <b>Summariser</b> (paid through Masumi)');
+    expect(aiText).toContain('<blockquote expandable>');
+    expect(aiText).toContain('x'.repeat(1500) + '…');
+    expect(aiText).not.toContain('x'.repeat(1501));
+    expect(jobResult({ status: 'failed', error: 'boom <1>' } as Job)).toBe('Something went wrong: boom &lt;1&gt;');
+  });
+
+  it('status list and the in-revision booking line', () => {
+    const jobs = [{ status: 'running', brief: { task: 'Translate a deck' } }, { status: 'completed', brief: { task: 'Logo' }, result: { summary: 'Booked Ann' } }] as Job[];
+    const text = jobsStatus(jobs);
+    expect(text).toContain('Translate a deck</b>\n  in progress');
+    expect(text).toContain('completed: Booked Ann');
+    expect(jobsStatus([])).toMatch(/Nothing is running/);
+    const line = bookingStatusLine({ id: 'bk', status: 'in_revision', note: 'Please add the <tagline>' } as Booking)!;
+    expect(line).toContain('asked to fix the work');
+    expect(line).toContain('Please add the &lt;tagline&gt;');
+  });
+
+  it('reputation line links the receipt and the transaction', () => {
+    const explorer = { tx: (h: string) => `https://scan/tx/${h}`, token: (u: string) => `https://scan/token/${u}` };
+    const text = reputationLine({ type: 'reputation.recorded', workerId: 'w', bookingId: 'b', jobId: 'j', txHash: 'h1', receiptUnit: 'u1', jobsCompleted: 1 }, explorer, 'Ann <b>');
+    expect(text).toContain('Ann &lt;b&gt; now has 1 verified job.');
+    expect(text).toContain('href="https://scan/token/u1"');
+    expect(text).toContain('href="https://scan/tx/h1"');
+    expect(reputationLine({ type: 'reputation.recorded', workerId: 'w', bookingId: 'b', jobId: 'j', txHash: 'h1', jobsCompleted: 2, avgRating: 4.75 }, explorer)).toContain('The worker now has 2 verified jobs, rating 4.8.');
   });
 });
 
